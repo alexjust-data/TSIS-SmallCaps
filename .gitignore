@@ -1,0 +1,110 @@
+# Data files (large, not for version control)
+raw/
+processed/
+# Exception: Keep small universe and report CSVs
+!processed/universe/
+!processed/universe/*.csv
+!processed/reports/
+!processed/reports/*.csv
+!processed/reports/*.md
+models/datasets_ready/
+models/trained_models/
+models/predictions/
+analysis/
+
+# Logs
+logs/
+*.log
+
+# API keys and credentials
+.env
+config/api_keys.yaml
+config/secrets.yaml
+*.key
+*.pem
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+pip-wheel-metadata/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual environments
+venv/
+env/
+ENV/
+env.bak/
+venv.bak/
+
+# Jupyter Notebook
+.ipynb_checkpoints
+*.ipynb_checkpoints/
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+*.temp
+*.bak
+nul
+analysis_output.txt
+worker_*.txt
+*_output.txt
+
+# Deprecated/archived files (tracked in archive/)
+archive/deprecated/
+archive/backups/*.tar.gz
+
+# Launcher temp files
+launch_*.bat.tmp
+*.log.tmp
+
+# DuckDB
+*.duckdb
+*.duckdb.wal
+
+# Keep structure but ignore contents
+raw/.gitkeep
+processed/.gitkeep
+models/.gitkeep
+logs/.gitkeep
+
+# Educational and reference materials (large files, videos, PDFs)
+docs/edu_trades/
+docs/SersanSistemas/
+docs/Papers/
+
+# Allow specific config templates
+!config/config.template.yaml
+!config/example.env
