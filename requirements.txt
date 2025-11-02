@@ -54,7 +54,7 @@ mlflow>=2.9.0               # ML experiment tracking
 # ========================================
 pyyaml>=6.0.1               # YAML config files
 python-dotenv>=1.0.0        # .env file loader
-argparse>=1.4.0             # CLI argument parsing (built-in, pero explicit)
+# argparse>=1.4.0           # CLI argument parsing (built-in)
 
 # ========================================
 # LOGGING
@@ -92,8 +92,8 @@ ipywidgets>=8.1.0           # Interactive widgets
 tqdm>=4.66.0                # Progress bars
 python-dateutil>=2.8.2      # Date utilities (relativedelta)
 pytz>=2023.3                # Timezone handling
-pathlib>=1.0.1              # Path manipulation (built-in, pero explicit)
-hashlib>=20081119           # Hashing (built-in, pero explicit)
+# pathlib>=1.0.1            # Path manipulation (built-in)
+# hashlib>=20081119         # Hashing (built-in)
 
 # ========================================
 # CONCURRENCY & PARALLELIZATION

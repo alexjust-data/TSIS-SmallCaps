@@ -36,7 +36,7 @@ $dateTo = "2025-11-01"
 $batchSize = 15          # Micro-batches para no saturar memoria
 $maxConcurrent = 10      # Balanceado (trades pesados pero queremos velocidad)
 $rateLimit = 0.15        # Agresivo inicial (adaptativo: 0.12-0.40s)
-$ingestScript = "scripts/ingest_trades_ticks.py"
+$ingestScript = "scripts/01_agregation_OHLCV/ingest_trades_ticks.py"
 
 Write-Host "============================================================" -ForegroundColor Cyan
 Write-Host "  WRAPPER TRADES TICK-LEVEL - TSIS SMALLCAPS (6,405 tickers)" -ForegroundColor Cyan
@@ -84,7 +84,7 @@ if ($LASTEXITCODE -eq 0 -and $cert) {
 Write-Host ""
 
 # Ejecutar wrapper Python
-python scripts/batch_trades_wrapper.py `
+python scripts/01_agregation_OHLCV/batch_trades_wrapper.py `
   --tickers-csv $tickersCsv `
   --outdir $outdir `
   --from $dateFrom `

@@ -139,14 +139,27 @@ def normalize_trades(results: list, ticker: str, trade_date: str) -> tuple:
 
     df = pl.from_dicts(results)
 
-    # Columnas esperadas de /v3/trades: t (timestamp nanos), p (price), s (size), x (exchange), c (conditions)
+    # Columnas de /v3/trades API (formato completo):
+    # participant_timestamp, sip_timestamp, price, size, exchange, conditions
+    # Usamos sip_timestamp (SIP=Securities Information Processor, oficial)
     picks = {}
-    for col, typ in [("t", pl.Int64), ("p", pl.Float64), ("s", pl.Int64), ("x", pl.Int64)]:
-        picks[col] = (df[col].cast(typ) if col in df.columns else pl.Series(name=col, values=[], dtype=typ))
+    # Mapeo: nombre_esperado -> (nombre_real, tipo)
+    col_map = {
+        "t": ("sip_timestamp", pl.Int64),
+        "p": ("price", pl.Float64),
+        "s": ("size", pl.Int64),
+        "x": ("exchange", pl.Int64)
+    }
 
-    # Conditions puede ser lista
-    if "c" in df.columns:
-        picks["c"] = df["c"]
+    for dest_col, (src_col, typ) in col_map.items():
+        if src_col in df.columns:
+            picks[dest_col] = df[src_col].cast(typ)
+        else:
+            picks[dest_col] = pl.Series(name=dest_col, values=[], dtype=typ)
+
+    # Conditions
+    if "conditions" in df.columns:
+        picks["c"] = df["conditions"]
     else:
         picks["c"] = pl.Series(name="c", values=[], dtype=pl.List(pl.Int64))
 
@@ -156,45 +169,54 @@ def normalize_trades(results: list, ticker: str, trade_date: str) -> tuple:
         empty_schema = {"ticker":[], "date":[], "timestamp":[], "price":[], "size":[], "exchange":[], "conditions":[]}
         return pl.DataFrame(empty_schema), pl.DataFrame(empty_schema)
 
-    # Convertir timestamp nanosegundos a datetime
-    ts_series = pl.from_epoch(pl.col("t") / 1_000_000_000, time_unit="s")
-
+    # 1) Construir timestamp UTC a partir de nanos
     out = out.with_columns([
-        ts_series.alias("timestamp"),
+        pl.from_epoch((pl.col("t") / 1_000_000_000), time_unit="s").alias("timestamp_utc"),
         pl.lit(ticker).alias("ticker"),
         pl.lit(trade_date).alias("date"),
         pl.col("p").alias("price"),
         pl.col("s").alias("size"),
         pl.col("x").alias("exchange"),
         pl.col("c").alias("conditions")
-    ]).select(["ticker", "date", "timestamp", "price", "size", "exchange", "conditions"])
-
-    # Separar premarket (04:00-09:30) vs market (09:30-16:00)
-    # Simplificado: usar solo la hora (ignoramos DST por ahora)
-    out = out.with_columns([
-        pl.col("timestamp").dt.hour().alias("hour"),
-        pl.col("timestamp").dt.minute().alias("minute")
     ])
 
-    # Premarket: hour in [4,5,6,7,8] OR (hour=9 AND minute<30)
-    df_premarket = out.filter(
-        (pl.col("hour") >= PREMARKET_START_HOUR) &
-        ((pl.col("hour") < MARKET_START_HOUR) |
-         ((pl.col("hour") == MARKET_START_HOUR) & (pl.col("minute") < 30)))
-    ).drop(["hour", "minute"])
+    # 2) Hacer timezone-aware y convertir a America/New_York para el split logico
+    out = out.with_columns([
+        pl.col("timestamp_utc")
+          .dt.replace_time_zone("UTC")
+          .dt.convert_time_zone("America/New_York")
+          .alias("timestamp_et")
+    ]).select([
+        "ticker","date","timestamp_utc","timestamp_et","price","size","exchange","conditions"
+    ]).rename({"timestamp_utc": "timestamp"})
 
-    # Market: (hour=9 AND minute>=30) OR hour in [10,11,12,13,14,15]
+    # Separar premarket (04:00-09:30 ET) vs market (09:30-20:00 ET) usando hora local ET
+    # EXTENDIDO: capturamos after-hours hasta 20:00 ET
+    out = out.with_columns([
+        pl.col("timestamp_et").dt.hour().alias("hour_et"),
+        pl.col("timestamp_et").dt.minute().alias("minute_et")
+    ])
+
+    # Premarket: hour_et in [4,5,6,7,8] OR (hour_et=9 AND minute_et<30)
+    df_premarket = out.filter(
+        (pl.col("hour_et") >= PREMARKET_START_HOUR) &
+        ((pl.col("hour_et") < MARKET_START_HOUR) |
+         ((pl.col("hour_et") == MARKET_START_HOUR) & (pl.col("minute_et") < 30)))
+    ).drop(["hour_et","minute_et","timestamp_et"])
+
+    # Market: (hour_et=9 AND minute_et>=30) OR hour_et in [10,11,12,13,14,15,16,17,18,19]
+    # Capturamos regular + after-hours hasta 20:00 ET
     df_market = out.filter(
-        ((pl.col("hour") == MARKET_START_HOUR) & (pl.col("minute") >= 30)) |
-        ((pl.col("hour") > MARKET_START_HOUR) & (pl.col("hour") < MARKET_END_HOUR))
-    ).drop(["hour", "minute"])
+        ((pl.col("hour_et") == MARKET_START_HOUR) & (pl.col("minute_et") >= 30)) |
+        ((pl.col("hour_et") > MARKET_START_HOUR) & (pl.col("hour_et") < 20))
+    ).drop(["hour_et","minute_et","timestamp_et"])
 
     return df_premarket, df_market
 
 def write_trades_by_day(df_premarket: pl.DataFrame, df_market: pl.DataFrame,
                         outdir: Path, ticker: str, trade_date: str) -> int:
     """Escribe trades separados en premarket.parquet y market.parquet"""
-    if df_premarket.is_empty() and df_market.is_empty():
+    if df_premarket.height == 0 and df_market.height == 0:
         return 0
 
     # Extraer año/mes de la fecha
@@ -349,6 +371,8 @@ def main():
             rows_sum = 0
             files_sum = 0
 
+            log(f"Processing {t} (ticker {processed+1}/{len(tickers)})...")
+
             for day in date_range(df, dt0):
                 day_str = day.strftime("%Y-%m-%d")
 
@@ -365,7 +389,12 @@ def main():
                 except Exception:
                     pass
 
+                # Log progreso cada 200 días
+                if days_sum > 0 and days_sum % 200 == 0:
+                    log(f"  {t}: {days_sum}/~2555 días | {rows_sum:,} trades")
+
             results.append(f"{t}: {rows_sum:,} trades, {days_sum} days")
+            log(f"Completed {t}: {rows_sum:,} trades total")
         except Exception as e:
             results.append(f"{t}: ERROR {e}")
 

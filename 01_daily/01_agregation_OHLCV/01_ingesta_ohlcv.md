@@ -167,7 +167,7 @@ AFTERHOURS: 16:00 - 20:00 ET  → (NO descargado, fuera de scope)
 
 | Script | Descripción |
 |--------|-------------|
-| [ingest_ohlcv_daily.py](../../scripts/ingest_ohlcv_daily.py) | Descarga paralela de OHLCV diario |
+| [ingest_ohlcv_daily.py](../../scripts/01_agregation_OHLCV/ingest_ohlcv_daily.py) | Descarga paralela de OHLCV diario |
 
 **Parámetros clave**:
 - `PAGE_LIMIT`: 50,000
@@ -201,9 +201,9 @@ Primeros 10: ['AANW', 'ABX', 'ACLL', 'AIRCW', 'AIRTV', 'AIVW', 'ALPX', 'ALVU', '
 
 | Script | Descripción |
 |--------|-------------|
-| [ingest_ohlcv_intraday_minute.py](../../scripts/ingest_ohlcv_intraday_minute.py) | Core de descarga intraday (mensual, streaming) |
-| [batch_intraday_wrapper.py](../../scripts/batch_intraday_wrapper.py) | Wrapper para micro-batches de 20 tickers |
-| [launch_wrapper.ps1](../../scripts/launch_wrapper.ps1) | PowerShell launcher (8 batches concurrentes) |
+| [ingest_ohlcv_intraday_minute.py](../../scripts/01_agregation_OHLCV/ingest_ohlcv_intraday_minute.py) | Core de descarga intraday (mensual, streaming) |
+| [batch_intraday_wrapper.py](../../scripts/01_agregation_OHLCV/batch_intraday_wrapper.py) | Wrapper para micro-batches de 20 tickers |
+| [launch_wrapper.ps1](../../scripts/01_agregation_OHLCV/launch_wrapper.ps1) | PowerShell launcher (8 batches concurrentes) |
 
 **Parámetros clave**:
 - `PAGE_LIMIT`: 50,000 (5x menos requests vs 10K default)
@@ -221,32 +221,140 @@ Primeros 10: ['AANW', 'ABX', 'ACLL', 'AIRCW', 'AIRTV', 'AIVW', 'ALPX', 'ALVU', '
 5. TLS heredado (fix SSL handshake Windows)
 6. Pool mejorado (reduce handshake overhead)
 
+```sh
+📊 RESUMEN DESCARGA INTRADÍA 1-MINUTE
+============================================================
+Universo esperado:    6,405 tickers
+Descargados:          6,296 tickers
+Cobertura:            98.30%
+Faltantes:            109
+
+📁 SAMPLE 5 TICKERS:
+============================================================
+NGNE     | 3 años | 23 meses | 64,908 rows | 2023-12-19 14:15 → 2025-10-31 23:18
+COSO     | 5 años | 47 meses | 4,212 rows | 2021-12-31 19:03 → 2025-10-31 19:59
+WLDN     | 7 años | 82 meses | 166,886 rows | 2019-01-02 14:30 → 2025-10-31 21:43
+MCGA     | 1 años | 2 meses | 4,516 rows | 2025-09-08 08:01 → 2025-10-31 19:59
+AEZS     | 6 años | 68 meses | 215,156 rows | 2019-01-02 13:50 → 2024-08-08 19:39
+
+❌ FALTANTES (109):
+============================================================
+Primeros 10: ['AANW', 'ABX', 'ACLL', 'AEBIV', 'AIRCW', 'AIRTV', 'AIVW', 'ALPX', 'ALVU', 'ARMKW']
+
+💾 ESTIMACIÓN TAMAÑO:
+============================================================
+Sample 10 tickers:
+  Promedio/ticker: 2.9 MB
+  Total estimado:  17.5 GB (6296 tickers)
+``` 
 ---
 
-### Trades Tick-Level (NUEVO)
+### Trades Tick-Level
 
-| Script | Descripción |
-|--------|-------------|
-| [ingest_trades_ticks.py](../../scripts/ingest_trades_ticks.py) | Core de descarga trades tick-level (diario, streaming) |
-| [batch_trades_wrapper.py](../../scripts/batch_trades_wrapper.py) | Wrapper para micro-batches de 15 tickers |
-| [launch_trades_wrapper.ps1](../../scripts/launch_trades_wrapper.ps1) | PowerShell launcher (6 batches concurrentes) |
+* [ingest_trades_ticks.py](../../scripts/01_agregation_OHLCV/ingest_trades_ticks.py) - **Ingestor principal**
+    * Descarga DIARIA (2,555 días para 2019-2025, evita JSONs gigantes)
+    * Separación premarket (04:00-09:30) / market (09:30-16:00) - (reduce tamaño por archivo)
+    * Streaming writes
+    * Rate-limit adaptativo (0.12-0.40s) (ticks generan mucho más tráfico)
+    * Compresión ZSTD level 3 (trades tick son 10x más grandes que 1-min bars)
 
-**Parámetros clave**:
-- `PAGE_LIMIT`: 50,000
-- `BATCH_SIZE`: 15 tickers (más conservador)
-- `CONCURRENT_BATCHES`: 6 (más conservador)
-- `RATE_LIMIT_BASE`: 0.15s (adaptativo hasta 0.40s)
-- `COMPRESSION`: ZSTD level 3 (máxima compresión)
-- `SPLIT_SESSIONS`: True (premarket/market separados)
+* [batch_trades_wrapper.py](../../scripts/01_agregation_OHLCV/batch_trades_wrapper.py) - **Wrapper de micro-batches**
+    * Micro-batches de 15 tickers
+    * Paralelismo de 10 batches concurrentes
+    * Resume logic robusto (detecta días parciales y los reintenta)
 
-**Optimizaciones críticas**:
-1. Descarga DIARIA (2,555 días para 2019-2025, evita JSON gigantes)
-2. Separación premarket/market (reduce tamaño por archivo)
-3. Rate-limit adaptativo MÁS conservador (ticks generan mucho más tráfico)
-4. Compresión ZSTD level 3 (trades tick son 10x más grandes que 1-min bars)
-5. Resume logic robusto (detecta días parciales y los reintenta)
+* [launch_trades_wrapper.ps1](../../scripts/01_agregation_OHLCV/launch_trades_wrapper.ps1) - **Launcher PowerShell**
+    * Configuración optimizada (balanceada velocidad/estabilidad)
+    * Estimación: ~9-12 horas
 
 ---
+
+```sh
+python scripts/01_agregation_OHLCV/batch_trades_wrapper.py  
+    --tickers-csv processed/universe/smallcaps_universe_2025-11-01.parquet 
+    --outdir raw/polygon/trades_ticks 
+    --from 2019-01-01 
+    --to 2025-11-01 
+    --batch-size 15 
+    --max-concurrent 10 
+    --rate-limit 0.15 
+    --ingest-script scripts/01_agregation_OHLCV/ingest_trades_ticks.py 
+    --resume
+```
+
+```sh
+🚀 OPCIONES PARA ACELERAR LA DESCARGA:
+
+1. AUMENTAR CONCURRENCIA (Opción más efectiva)
+# Actual: 10 batches concurrentes
+# Recomendado: 15-20 batches concurrentes
+
+Pros:
+✅ Acelera 1.5-2x (de 5 días a 2.5-3 días)
+✅ Aprovecha mejor el throughput de Polygon API
+✅ No requiere cambios de código
+
+Contras:
+⚠️ Mayor uso de RAM (~3-4 GB)
+⚠️ Más requests simultáneos (pero dentro de límites)
+
+2. AUMENTAR BATCH SIZE
+# Actual: 15 tickers/batch
+# Recomendado: 20-25 tickers/batch
+
+Pros:
+✅ Menos overhead de inicio/fin de batch
+✅ Mejor utilización de recursos
+
+Contras:
+⚠️ Batches más lentos individualmente
+⚠️ Menos granularidad en el progreso
+
+3. REDUCIR RATE LIMIT (Con cuidado)
+# Actual: 0.15s/página (adaptativo 0.12-0.40s)
+# Agresivo: 0.10s/página
+
+Pros:
+✅ Más requests/segundo
+
+Contras:
+❌ Alto riesgo de 429 (rate limit exceeded)
+❌ Puede hacer que el adaptativo aumente el delay
+
+4. COMBINAR 1+2 (RECOMENDADO)
+--batch-size 20 --max-concurrent 15
+
+Estimación: ~3 días (vs 5 días actual)
+
+📊 ¿Qué te recomiendo?
+
+OPCIÓN CONSERVADORA (recomendada):
+--batch-size 20 --max-concurrent 15 --rate-limit 0.15
+
+Velocidad: ~2.5-3 días
+Riesgo: Bajo
+Ganancia: 40-50% más rápido
+
+OPCIÓN AGRESIVA (si tienes prisa):
+--batch-size 25 --max-concurrent 20 --rate-limit 0.12
+
+Velocidad: ~2 días
+Riesgo: Medio (puede haber más 429s)
+Ganancia: 60% más rápido
+```
+
+lanzado a las 20:27
+```sh
+cd "D:\TSIS_SmallCaps" && python scripts/01_agregation_OHLCV/batch_trades_wrapper.py 
+    --tickers-csv processed/universe/smallcaps_universe_2025-11-01.parquet 
+    --outdir raw/polygon/trades_ticks 
+    --from 2019-01-01 --to 2025-11-01 
+    --batch-size 20 
+    --max-concurrent 15 
+    --rate-limit 0.15 
+    --ingest-script scripts/01_agregation_OHLCV/ingest_trades_ticks.py 
+    --resume
+```
 
 ## Estructura de Output
 
@@ -285,22 +393,3 @@ D:\TSIS_SmallCaps\
 
 ---
 
-## Próximos Pasos
-
-**PENDIENTE**: Leer scripts de referencia del proyecto anterior para adaptar:
-
-1. ✅ Crear documentación inicial FASE B
-2. ⏳ Leer scripts de referencia:
-   - [B.2_audit_final_universo_hibrido_20251025.md](../../../04_TRADING_SMALLCAPS/01_DayBook/fase_01/B_ingesta_Daily_Minut_v2/B.2_audit_final_universo_hibrido_20251025.md)
-   - [ingest_ohlcv_daily.py](../../../04_TRADING_SMALLCAPS/scripts/fase_B_ingesta_Daily_minut/ingest_ohlcv_daily.py)
-   - [ingest_ohlcv_intraday_minute.py](../../../04_TRADING_SMALLCAPS/scripts/fase_B_ingesta_Daily_minut/ingest_ohlcv_intraday_minute.py)
-   - [launch_wrapper.ps1](../../../04_TRADING_SMALLCAPS/scripts/fase_B_ingesta_Daily_minut/tools/launch_wrapper.ps1)
-   - [batch_intraday_wrapper.py](../../../04_TRADING_SMALLCAPS/scripts/fase_B_ingesta_Daily_minut/tools/batch_intraday_wrapper.py)
-3. ⏳ Adaptar scripts a TSIS_SmallCaps (6,405 tickers)
-4. ⏳ Ejecutar descarga Daily OHLCV
-5. ⏳ Ejecutar descarga Intraday 1-Minute
-6. ⏳ Generar auditorías finales
-
----
-
-**Status**: 📝 Documentación creada, esperando lectura de scripts de referencia

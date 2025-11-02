@@ -164,7 +164,7 @@ READY FOR: FASE B (Descarga OHLCV Daily/Minute)
 
 * **Objetivo**: Descargar universo completo 2004-2025 (34,380 tickers - activos + inactivos). Este archivo es el primer paso del pipeline de Small Caps. Sirve para descargar el universo completo de compañías (activas + delistadas) de Polygon.io y dejarlo guardado como snapshot diario en formato Parquet particionado.  
 * **Fuente de datos**: Polygon API (tickers snapshot histórico) 
-* **Script**: [scripts/download_universe.py](../../scripts/download_universe.py)    
+* **Script**: [scripts/00_universe_ingest/download_universe.py](../../scripts/00_universe_ingest/download_universe.py)    
 * **Output**: [raw/polygon/reference/tickers_snapshot/snapshot_date=2025-11-01/](../../raw/polygon/reference/tickers_snapshot/snapshot_date=2025-11-01/)  
 
 ```bash
@@ -242,7 +242,7 @@ shape: (14, 3)
 
 **Objetivo**: Filtrar tickers que estuvieron listados entre 2019 y 2025 desde el snapshot completo (20,471 tickers). Este paso elimina tickers que no tienen datos en el período de interés, manteniendo tanto activos como inactivos para evitar survivorship bias.  
 **Fuente de datos**: Snapshot completo de Polygon (34,324 tickers)  
-**Script**: [scripts/filter_universe_2019_2025.py](../../../scripts/filter_universe_2019_2025.py)   
+**Script**: [scripts/00_universe_ingest/filter_universe_2019_2025.py](../../../scripts/00_universe_ingest/filter_universe_2019_2025.py)   
 
 **Lógica de filtrado**:  
 - **Activos (11,897)**: Incluye TODOS los tickers activos hoy (asumiendo que existían en 2019+)  
@@ -275,7 +275,7 @@ D:\TSIS_SmallCaps\
 
 **Comando de ejecución**:
 ```bash
-python scripts/filter_universe_2019_2025.py \
+python scripts/00_universe_ingest/filter_universe_2019_2025.py \
   --input raw/polygon/reference/tickers_snapshot/snapshot_date=2025-11-01/tickers_all.parquet \
   --output processed/universe/tickers_2019_2025.csv \
   --start-year 2019 \
@@ -423,7 +423,7 @@ Columnas disponibles:
 
 * **Objetivo**: Filtrar únicamente Common Stocks (type=CS) listados en NASDAQ (XNAS) o NYSE (XNYS) del universo temporal 2019-2025. Este filtro excluye ETFs, Warrants, Units, Preferred Stocks y otros tipos de instrumentos, así como tickers en exchanges menores (ARCX, BATS, XASE).  
 * **Fuente de datos**: Universo filtrado temporalmente 2019-2025 (20,471 tickers)  
-* **Script**: [scripts/filter_universe_cs_exchanges.py](../../../scripts/filter_universe_cs_exchanges.py)  
+* **Script**: [scripts/00_universe_ingest/filter_universe_cs_exchanges.py](../../../scripts/00_universe_ingest/filter_universe_cs_exchanges.py)  
 * **Input**: `processed/universe/tickers_2019_2025.parquet` (20,471 tickers)  
 * **Filtros aplicados**:  
     - `type = "CS"` (Common Stock)  
@@ -469,7 +469,7 @@ D:\TSIS_SmallCaps\
 
 **Comando de ejecución**:  
 ```bash
-python scripts/filter_universe_cs_exchanges.py \
+python scripts/00_universe_ingest/filter_universe_cs_exchanges.py \
   --input processed/universe/tickers_2019_2025.parquet \
   --output processed/universe/tickers_2019_2025_cs_exchanges.csv
 ```
@@ -674,14 +674,14 @@ D:\TSIS_SmallCaps\
 
 ```bash
 # PASO 1: Descargar ticker details (3 min)
-python scripts/enrich_ticker_details.py \
+python scripts/00_universe_ingest/enrich_ticker_details.py \
     --input processed/universe/tickers_2019_2025_cs_exchanges.parquet \
     --output raw/polygon/reference/ticker_details \
     --as-of-date 2025-11-01 \
     --max-workers 16
 
 # PASO 2: Crear universo híbrido enriquecido (instantáneo)
-python scripts/create_hybrid_enriched_universe.py \
+python scripts/00_universe_ingest/create_hybrid_enriched_universe.py \
     --base processed/universe/tickers_2019_2025_cs_exchanges.parquet \
     --details raw/polygon/reference/ticker_details/as_of_date=2025-11-01/details.parquet \
     --snapshot raw/polygon/reference/tickers_snapshot/snapshot_date=2025-11-01/tickers_all.parquet \
@@ -801,7 +801,7 @@ Total tickers enriquecidos: 8,307
 
 * **Objetivo**: Filtrar la población target de Small Caps (market cap < $2B) preservando TODOS los tickers inactivos para eliminar survivorship bias. Este filtro dual aplica el umbral de capitalización SOLO a activos, mientras mantiene el 100% de inactivos como contrapartes históricas necesarias para ML.
 * **Fuente de datos**: Universo enriquecido CS+XNAS/XNYS (8,307 tickers con market_cap y delisted_utc)
-* **Script**: [scripts/filter_smallcaps_population.py](../../scripts/filter_smallcaps_population.py)
+* **Script**: [scripts/00_universe_ingest/filter_smallcaps_population.py](../../scripts/00_universe_ingest/filter_smallcaps_population.py)
 * **Input**: `processed/universe/hybrid_enriched_2025-11-01.parquet` (8,307 tickers enriquecidos)
 * **Estrategia dual de filtrado**:
     - **ACTIVOS**: `market_cap < $2,000,000,000` → 3,105 tickers
@@ -869,7 +869,7 @@ D:\TSIS_SmallCaps\
 
 **Comando de ejecución**:
 ```bash
-python scripts/filter_smallcaps_population.py \
+python scripts/00_universe_ingest/filter_smallcaps_population.py \
   --input processed/universe/hybrid_enriched_2025-11-01.parquet \
   --output processed/universe/smallcaps_universe_2025-11-01.parquet \
   --market-cap-threshold 2000000000
@@ -1088,7 +1088,7 @@ Status: ✅ LISTO PARA FASE B (Ingesta Daily/Minute)
 ### 6a. Descarga Global (Sin Filtros)
 
 * **Objetivo**: Descargar eventos corporativos históricos GLOBALES (splits, dividends) para posterior ajuste de precios y feature engineering ML.
-* **Script**: [scripts/ingest_splits_dividends.py](../../scripts/ingest_splits_dividends.py)
+* **Script**: [scripts/00_universe_ingest/ingest_splits_dividends.py](../../scripts/00_universe_ingest/ingest_splits_dividends.py)
 * **Fuente de datos**: Polygon `/v3/reference/splits` y `/v3/reference/dividends` (sin filtros)
 * **Output**:
   - `raw/polygon/reference/splits/year=*/splits.parquet`
@@ -1114,7 +1114,7 @@ Status: ✅ LISTO PARA FASE B (Ingesta Daily/Minute)
 ### 6b. Filtrado por Universo Small Caps
 
 * **Objetivo**: Filtrar splits y dividends globales para quedarnos SOLO con los eventos de nuestro universo de 6,405 tickers Small Caps.
-* **Script**: [scripts/filter_splits_dividends_universe.py](../../scripts/filter_splits_dividends_universe.py)
+* **Script**: [scripts/00_universe_ingest/filter_splits_dividends_universe.py](../../scripts/00_universe_ingest/filter_splits_dividends_universe.py)
 * **Input**:
   - Universo: `processed/universe/smallcaps_universe_2025-11-01.parquet` (6,405 tickers)
   - Splits globales: `raw/polygon/reference/splits/year=*/`
@@ -1206,12 +1206,12 @@ D:\TSIS_SmallCaps\
 **Comandos de ejecución**:  
 ```bash
 # 6a - descarga eventos corporativos históricos GLOBALES
-python scripts/ingest_splits_dividends.py --outdir raw/polygon/reference
+python scripts/00_universe_ingest/ingest_splits_dividends.py --outdir raw/polygon/reference
 ```
 
 ```bash
 # 6b - quedarnos SOLO con los eventos de nuestro universo
-python scripts/filter_splits_dividends_universe.py \
+python scripts/00_universe_ingest/filter_splits_dividends_universe.py \
     --universe processed/universe/smallcaps_universe_2025-11-01.parquet \
     --splits-dir raw/polygon/reference/splits \
     --dividends-dir raw/polygon/reference/dividends \

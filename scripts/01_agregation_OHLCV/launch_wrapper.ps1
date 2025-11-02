@@ -37,7 +37,7 @@ $dateTo = "2025-11-01"
 $batchSize = 15          # Batches más pequeños, menos espera
 $maxConcurrent = 12      # Más batches simultáneos
 $rateLimit = 0.15        # Agresivo inicial (adaptativo: 0.12-0.35s)
-$ingestScript = "scripts/ingest_ohlcv_intraday_minute.py"
+$ingestScript = "scripts/01_agregation_OHLCV/ingest_ohlcv_intraday_minute.py"
 
 Write-Host "============================================================" -ForegroundColor Cyan
 Write-Host "  WRAPPER PRINCIPAL - TSIS SMALLCAPS (6,405 tickers)" -ForegroundColor Cyan
@@ -81,7 +81,7 @@ if ($LASTEXITCODE -eq 0 -and $cert) {
 Write-Host ""
 
 # Ejecutar wrapper Python
-python scripts/batch_intraday_wrapper.py `
+python scripts/01_agregation_OHLCV/batch_intraday_wrapper.py `
   --tickers-csv $tickersCsv `
   --outdir $outdir `
   --from $dateFrom `
