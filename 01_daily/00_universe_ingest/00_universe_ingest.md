@@ -103,28 +103,60 @@ Output: processed/universe/smallcaps_universe_2025-11-01.parquet
                     ↓  ENRIQUECIMIENTO EVENTOS CORPORATIVOS
 
 
-PASO 6: INGESTA GLOBAL DE SPLITS & DIVIDENDS
+PASO 6a: DESCARGA GLOBAL SPLITS & DIVIDENDS
 ────────────────────────────────────────────────────────────────────────────────
 Script: ingest_splits_dividends.py
 Fuente: Polygon /v3/reference/splits y /v3/reference/dividends (SIN FILTROS)
 Output: raw/polygon/reference/splits/year=*/ y dividends/year=*/
 
-        📊 SPLITS GLOBALES: ~26,696 registros (1978-2025)
+        📊 SPLITS GLOBALES: 26,696 registros (1978-2025)
         ├─ Tickers únicos: 18,454
         ├─ Período: 1978-2025 (48 años)
         └─ Particionado por: execution_date (año)
 
-        💰 DIVIDENDS GLOBALES: ~1.8M registros (histórico completo)
+        💰 DIVIDENDS GLOBALES: 1,881,581 registros (histórico completo)
         ├─ Tickers únicos: Miles
         ├─ Período: Histórico completo
         └─ Particionado por: ex_dividend_date (año)
 
-        ⚠️  NOTA: Datos GLOBALES (todos los tickers)
-            Siguiente paso: Filtrar para 6,405 tickers Small Caps
+
+                              ↓  FILTRO POR UNIVERSO
+
+
+PASO 6b: FILTRADO POR UNIVERSO SMALL CAPS
+────────────────────────────────────────────────────────────────────────────────
+Script: filter_splits_dividends_universe.py
+Input: 6,405 tickers Small Caps + Datos globales (26K splits, 1.8M dividends)
+Output: processed/corporate_actions/splits/year=*/ y dividends/year=*/
+
+        ✅ SPLITS FILTRADOS: 3,420 registros (12.8% retenido)
+        ├─ Tickers con splits: 2,009/6,405 (31.4%)
+        ├─ Período: 2002-2025
+        └─ Reducción: 87.2%
+
+        ✅ DIVIDENDS FILTRADOS: 71,291 registros (3.8% retenido)
+        ├─ Tickers con dividends: 1,768/6,405 (27.6%)
+        ├─ Período: 2002-2026
+        └─ Reducción: 96.2%
 
 
 ════════════════════════════════════════════════════════════════════════════════
-✅ RESULTADO FINAL: 6,405 tickers Small Caps listos para FASE B (OHLCV)
+✅ FASE A COMPLETADA - UNIVERSO CONSTRUIDO
+════════════════════════════════════════════════════════════════════════════════
+
+RESULTADO FINAL: 6,405 tickers Small Caps enriquecidos
+├─ Small Caps activos (< $2B): 3,105 (48.5%)
+│  ├─ Market cap, description, employees, SIC code
+│  ├─ Splits históricos: 2,009 tickers (31.4%)
+│  └─ Dividends históricos: 1,768 tickers (27.6%)
+│
+└─ Inactivos preservados: 3,300 (51.5%)
+   ├─ Delisted dates (100% completitud)
+   ├─ Splits históricos preservados
+   └─ Dividends históricos preservados
+   → ✅ ANTI-SURVIVORSHIP BIAS APLICADO
+
+READY FOR: FASE B (Descarga OHLCV Daily/Minute)
 ════════════════════════════════════════════════════════════════════════════════
 ```
 
@@ -1062,31 +1094,20 @@ Status: ✅ LISTO PARA FASE B (Ingesta Daily/Minute)
   - `raw/polygon/reference/splits/year=*/splits.parquet`
   - `raw/polygon/reference/dividends/year=*/dividends.parquet`
 
-**IMPORTANTE**: Esta es una descarga GLOBAL de todos los eventos corporativos disponibles en Polygon. Los datos se filtrarán posteriormente para nuestro universo de 6,405 tickers Small Caps.
+   **Datos descargados**:
 
-**Características**:
-- Paginación eficiente con manejo de cursores
-- Rate limiting con reintentos automáticos
-- Particionado por año (execution_date para splits, ex_dividend_date para dividends)
-- Limpieza automática: eliminación de duplicados, cálculo de ratios
+   * **SPLITS** (26,696 registros):
+      - **Período**: 1978-2025 (48 años)
+      - **Tickers únicos**: 18,454
+      - **Campos clave**: `ticker`, `execution_date`, `split_from`, `split_to`, `ratio`, `declared_date`
 
-**Comando de ejecución**:
+   * **DIVIDENDS** (~1.8M registros):
+      - **Período**: Histórico completo
+      - **Tickers únicos**: Miles
+      - **Campos clave**: `ticker`, `ex_dividend_date`, `cash_amount`, `declaration_date`, `record_date`, `payable_date`, `frequency`, `dividend_type`
 
-```bash
-python scripts/ingest_splits_dividends.py --outdir raw/polygon/reference
-```
+>**IMPORTANTE**: Esta es una descarga GLOBAL de todos los eventos corporativos disponibles en Polygon. Los datos se filtrarán posteriormente para nuestro universo de 6,405 tickers Small Caps.
 
-**Datos descargados**:
-
-**SPLITS** (26,696 registros):
-- **Período**: 1978-2025 (48 años)
-- **Tickers únicos**: 18,454
-- **Campos clave**: `ticker`, `execution_date`, `split_from`, `split_to`, `ratio`, `declared_date`
-
-**DIVIDENDS** (~1.8M registros):
-- **Período**: Histórico completo
-- **Tickers únicos**: Miles
-- **Campos clave**: `ticker`, `ex_dividend_date`, `cash_amount`, `declaration_date`, `record_date`, `payable_date`, `frequency`, `dividend_type`
 
 ---
 
@@ -1103,20 +1124,8 @@ python scripts/ingest_splits_dividends.py --outdir raw/polygon/reference
   - `processed/corporate_actions/dividends/year=*/dividends.parquet` (filtrado)
   - `processed/corporate_actions/summary.csv` (estadísticas)
 
-**Comando de ejecución**:
+---  
 
-```bash
-python scripts/filter_splits_dividends_universe.py \
-    --universe processed/universe/smallcaps_universe_2025-11-01.parquet \
-    --splits-dir raw/polygon/reference/splits \
-    --dividends-dir raw/polygon/reference/dividends \
-    --output-dir processed/corporate_actions
-```
-
-**Resultado esperado**:
-- Reducción significativa del volumen de datos (solo eventos relevantes para nuestro universo)
-- Misma estructura particionada por año para eficiencia
-- Estadísticas detalladas: % retenido, tickers con splits/dividends, distribuciones
 
 ```sh
 D:\TSIS_SmallCaps\
@@ -1193,9 +1202,170 @@ D:\TSIS_SmallCaps\
 │       └── summary.csv                           # Estadísticas de filtrado
 ```
 
----
+
+**Comandos de ejecución**:  
+```bash
+# 6a - descarga eventos corporativos históricos GLOBALES
+python scripts/ingest_splits_dividends.py --outdir raw/polygon/reference
+```
+
+```bash
+# 6b - quedarnos SOLO con los eventos de nuestro universo
+python scripts/filter_splits_dividends_universe.py \
+    --universe processed/universe/smallcaps_universe_2025-11-01.parquet \
+    --splits-dir raw/polygon/reference/splits \
+    --dividends-dir raw/polygon/reference/dividends \
+    --output-dir processed/corporate_actions
+```
+
+```sh
+====================================================================================================
+VERIFICACIÓN SPLITS & DIVIDENDS - UNIVERSO SMALL CAPS (6,405 tickers)
+====================================================================================================
+
+RESUMEN EJECUTIVO:
+----------------------------------------------------------------------------------------------------
+shape: (11, 2)
+┌───────────────────────────┬─────────┐
+│ metric                    ┆ value   │
+╞═══════════════════════════╪═════════╡
+│ universe_size             ┆ 6405    │
+│ splits_global             ┆ 26696   │
+│ splits_filtrado           ┆ 3420    │
+│ splits_pct_retenido       ┆ 12.81%  │
+│ tickers_con_splits        ┆ 2009    │
+│ tickers_con_splits_pct    ┆ 31.4%   │
+│ dividends_global          ┆ 1881581 │
+│ dividends_filtrado        ┆ 71291   │
+│ dividends_pct_retenido    ┆ 3.79%   │
+│ tickers_con_dividends     ┆ 1768    │
+│ tickers_con_dividends_pct ┆ 27.6%   │
+└───────────────────────────┴─────────┘
 
 
+SPLITS FILTRADOS (processed/corporate_actions/splits/year=*/)
+----------------------------------------------------------------------------------------------------
+Total splits:              3,420
+Total columns:             6
+Tickers únicos:            2,009
+Período:                   2002-04-16 - 2025-12-01
+
+Top 10 tickers con más splits:
+shape: (10, 2)
+┌────────┬─────┐
+│ ticker ┆ len │
+╞════════╪═════╡
+│ CZFS   ┆ 22  │
+│ VGR    ┆ 17  │
+│ CVLY   ┆ 15  │
+│ UBFO   ┆ 15  │
+│ HWBK   ┆ 15  │
+│ SNFCA  ┆ 13  │
+│ LARK   ┆ 13  │
+│ AROW   ┆ 11  │
+│ ESBK   ┆ 10  │
+│ WHLR   ┆ 10  │
+└────────┴─────┘
+
+Top 10 años con más splits:
+shape: (10, 2)
+┌──────┬─────┐
+│ year ┆ len │
+╞══════╪═════╡
+│ 2024 ┆ 422 │
+│ 2023 ┆ 419 │
+│ 2025 ┆ 379 │
+│ 2022 ┆ 229 │
+│ 2019 ┆ 175 │
+│ 2020 ┆ 165 │
+│ 2006 ┆ 142 │
+│ 2016 ┆ 142 │
+│ 2017 ┆ 134 │
+│ 2005 ┆ 117 │
+└──────┴─────┘
+
+HEAD(3) - Ejemplo de splits:
+shape: (3, 5)
+┌────────┬────────────────┬────────────┬──────────┬───────┐
+│ ticker ┆ execution_date ┆ split_from ┆ split_to ┆ ratio │
+╞════════╪════════════════╪════════════╪══════════╪═══════╡
+│ BVSN   ┆ 2002-07-30     ┆ 9.0        ┆ 1.0      ┆ 9.0   │
+│ MARX   ┆ 2002-08-26     ┆ 10.0       ┆ 1.0      ┆ 10.0  │
+│ WRI    ┆ 2002-04-16     ┆ 2.0        ┆ 5.0      ┆ 0.4   │
+└────────┴────────────────┴────────────┴──────────┴───────┘
+
+
+DIVIDENDS FILTRADOS (processed/corporate_actions/dividends/year=*/)
+----------------------------------------------------------------------------------------------------
+Total dividends:           71,291
+Total columns:             10
+Tickers únicos:            1,768
+Período:                   2002-12-11 - 2026-02-17
+
+Top 10 tickers con más dividends:
+shape: (10, 2)
+┌────────┬─────┐
+│ ticker ┆ len │
+╞════════╪═════╡
+│ GOOD   ┆ 257 │
+│ LTC    ┆ 255 │
+│ SBR    ┆ 250 │
+│ PBT    ┆ 248 │
+│ CRT    ┆ 248 │
+│ GAIN   ┆ 234 │
+│ MTR    ┆ 233 │
+│ GROW   ┆ 226 │
+│ SJR    ┆ 220 │
+│ SJT    ┆ 214 │
+└────────┴─────┘
+
+Distribución por tipo:
+shape: (2, 2)
+┌───────────────┬───────┐
+│ dividend_type ┆ len   │
+╞═══════════════╪═══════╡
+│ CD            ┆ 70865 │
+│ SC            ┆ 426   │
+└───────────────┴───────┘
+
+Top 10 años con más dividends:
+shape: (10, 2)
+┌──────┬──────┐
+│ year ┆ len  │
+╞══════╪══════╡
+│ 2018 ┆ 4241 │
+│ 2019 ┆ 4127 │
+│ 2017 ┆ 4079 │
+│ 2016 ┆ 3955 │
+│ 2015 ┆ 3942 │
+│ 2014 ┆ 3756 │
+│ 2022 ┆ 3739 │
+│ 2021 ┆ 3633 │
+│ 2023 ┆ 3628 │
+│ 2020 ┆ 3561 │
+└──────┴──────┘
+
+HEAD(3) - Ejemplo de dividends:
+shape: (3, 5)
+┌────────┬──────────────────┬─────────────┬───────────────┬───────────┐
+│ ticker ┆ ex_dividend_date ┆ cash_amount ┆ dividend_type ┆ frequency │
+╞════════╪══════════════════╪═════════════╪═══════════════╪═══════════╡
+│ WKC    ┆ 2002-12-11       ┆ 0.075       ┆ CD            ┆ 0         │
+│ ORRF   ┆ 2003-12-29       ┆ 0.23        ┆ CD            ┆ 0         │
+│ MSW    ┆ 2003-12-29       ┆ 0.24        ┆ CD            ┆ 0         │
+└────────┴──────────────────┴─────────────┴───────────────┴───────────┘
+
+
+COBERTURA DEL UNIVERSO (6,405 tickers)
+----------------------------------------------------------------------------------------------------
+Universo total:            6,405 tickers
+  • Activos:               3,105 (48.5%)
+  • Inactivos:             3,300 (51.5%)
+
+Tickers con splits:        2,009 (31.4%)
+Tickers con dividends:     1,768 (27.6%)
+
+```
 
 ## notebook resultados
 
