@@ -93,7 +93,8 @@ def parse_next_cursor(next_url: Optional[str]) -> Optional[str]:
 
 def build_session() -> requests.Session:
     s = requests.Session()
-    adapter = requests.adapters.HTTPAdapter(pool_connections=3, pool_maxsize=4, max_retries=0)
+    # Pool más grande para concurrencia real
+    adapter = requests.adapters.HTTPAdapter(pool_connections=32, pool_maxsize=64, max_retries=0)
     s.mount("https://", adapter)
     s.headers.update({"Accept-Encoding": "identity"})
     return s
@@ -126,7 +127,7 @@ def http_get_json(session: requests.Session, url: str, params: Dict[str, Any], h
             time.sleep(sl)
     raise RuntimeError(f"Failed after {RETRY_MAX} attempts: {last_error}")
 
-def normalize_trades(results: list, ticker: str, trade_date: str) -> tuple:
+def normalize_trades(results: list, ticker: str, trade_date: str, args=None) -> tuple:
     """
     Normaliza trades y separa en premarket/market según timestamp
 
@@ -204,12 +205,18 @@ def normalize_trades(results: list, ticker: str, trade_date: str) -> tuple:
          ((pl.col("hour_et") == MARKET_START_HOUR) & (pl.col("minute_et") < 30)))
     ).drop(["hour_et","minute_et","timestamp_et"])
 
-    # Market: (hour_et=9 AND minute_et>=30) OR hour_et in [10,11,12,13,14,15,16,17,18,19]
-    # Capturamos regular + after-hours hasta 20:00 ET
-    df_market = out.filter(
-        ((pl.col("hour_et") == MARKET_START_HOUR) & (pl.col("minute_et") >= 30)) |
-        ((pl.col("hour_et") > MARKET_START_HOUR) & (pl.col("hour_et") < 20))
-    ).drop(["hour_et","minute_et","timestamp_et"])
+    # Market regular y, opcionalmente, after-hours
+    if args and getattr(args, "no_afterhours", False):
+        df_market = out.filter(
+            ((pl.col("hour_et") == MARKET_START_HOUR) & (pl.col("minute_et") >= 30)) |
+            ((pl.col("hour_et") > MARKET_START_HOUR) & (pl.col("hour_et") < 16))
+        ).drop(["hour_et","minute_et","timestamp_et"])
+    else:
+        # Regular + after-hours hasta 20:00 ET
+        df_market = out.filter(
+            ((pl.col("hour_et") == MARKET_START_HOUR) & (pl.col("minute_et") >= 30)) |
+            ((pl.col("hour_et") > MARKET_START_HOUR) & (pl.col("hour_et") < 20))
+        ).drop(["hour_et","minute_et","timestamp_et"])
 
     return df_premarket, df_market
 
@@ -237,10 +244,10 @@ def write_trades_by_day(df_premarket: pl.DataFrame, df_market: pl.DataFrame,
             merged = pl.concat([old, df_premarket], how="vertical_relaxed")\
                        .unique(subset=["timestamp"], keep="last")\
                        .sort("timestamp")
-            merged.write_parquet(outp_pre, compression="zstd", compression_level=3, statistics=False)
+            merged.write_parquet(outp_pre, compression="zstd", compression_level=1, statistics=False)
             del old, merged
         else:
-            df_premarket.write_parquet(outp_pre, compression="zstd", compression_level=3, statistics=False)
+            df_premarket.write_parquet(outp_pre, compression="zstd", compression_level=1, statistics=False)
 
         files_written += 1
 
@@ -254,17 +261,17 @@ def write_trades_by_day(df_premarket: pl.DataFrame, df_market: pl.DataFrame,
             merged = pl.concat([old, df_market], how="vertical_relaxed")\
                        .unique(subset=["timestamp"], keep="last")\
                        .sort("timestamp")
-            merged.write_parquet(outp_mkt, compression="zstd", compression_level=3, statistics=False)
+            merged.write_parquet(outp_mkt, compression="zstd", compression_level=1, statistics=False)
             del old, merged
         else:
-            df_market.write_parquet(outp_mkt, compression="zstd", compression_level=3, statistics=False)
+            df_market.write_parquet(outp_mkt, compression="zstd", compression_level=1, statistics=False)
 
         files_written += 1
 
     return files_written
 
 def fetch_and_stream_write_trades(session: requests.Session, api_key: str, ticker: str,
-                                   trade_date: str, rate_limit_s: Optional[float], outdir: Path) -> str:
+                                   trade_date: str, rate_limit_s: Optional[float], outdir: Path, args=None) -> str:
     """Descarga trades para un día específico y escribe directamente"""
     # Convertir fecha a timestamp Unix (nanosegundos)
     date_obj = dt.datetime.strptime(trade_date, "%Y-%m-%d")
@@ -287,7 +294,8 @@ def fetch_and_stream_write_trades(session: requests.Session, api_key: str, ticke
 
     cur_rl = rate_limit_s if rate_limit_s and rate_limit_s > 0 else None
     ok_streak, err_streak = 0, 0
-    MIN_RL, MAX_RL = 0.12, 0.40
+    # Límites de rate adaptativo (bajamos el mínimo)
+    MIN_RL, MAX_RL = 0.06, 0.40
 
     while True:
         p = params.copy()
@@ -309,7 +317,7 @@ def fetch_and_stream_write_trades(session: requests.Session, api_key: str, ticke
         rows_total += len(results)
 
         # Normalizar y separar premarket/market
-        df_premarket, df_market = normalize_trades(results, ticker, trade_date)
+        df_premarket, df_market = normalize_trades(results, ticker, trade_date, args)
         files_total += write_trades_by_day(df_premarket, df_market, outdir, ticker, trade_date)
 
         cursor = parse_next_cursor(data.get("next_url")) if data else None
@@ -334,6 +342,10 @@ def main():
     ap.add_argument("--max-tickers-per-process", type=int, default=15,
                     help="Max. tickers que procesará este proceso antes de salir")
     ap.add_argument("--max-workers", type=int, default=1, help="(IGNORADO) Paralelismo lo maneja el launcher")
+    # Opciones nuevas:
+    ap.add_argument("--skip-weekends", action="store_true", help="Saltar sábados y domingos")
+    ap.add_argument("--skip-us-holidays", action="store_true", help="Saltar festivos USA (lista simple embebida)")
+    ap.add_argument("--no-afterhours", action="store_true", help="Excluir after-hours (solo premarket+regular)")
     args = ap.parse_args()
 
     api_key = os.getenv("POLYGON_API_KEY")
@@ -355,10 +367,28 @@ def main():
     processed = 0
     results = []
 
+    # Lista mínima de festivos USA (amplíala si quieres)
+    US_HOLIDAYS = {
+        "2019-01-01","2019-07-04","2019-12-25",
+        "2020-01-01","2020-07-03","2020-12-25",
+        "2021-01-01","2021-07-05","2021-12-24",
+        "2022-01-17","2022-07-04","2022-12-26",
+        "2023-01-02","2023-07-04","2023-12-25",
+        "2024-01-01","2024-07-04","2024-12-25",
+        "2025-01-01","2025-07-04"
+    }
+
     # Iterar por DÍAS (descarga diaria)
     def date_range(start: dt.date, end: dt.date):
         current = start
         while current <= end:
+            # Opcionalmente saltar fines de semana y festivos
+            if args.skip_weekends and current.weekday() >= 5:
+                current += dt.timedelta(days=1)
+                continue
+            if args.skip_us_holidays and current.strftime("%Y-%m-%d") in US_HOLIDAYS:
+                current += dt.timedelta(days=1)
+                continue
             yield current
             current += dt.timedelta(days=1)
 
@@ -377,7 +407,7 @@ def main():
                 day_str = day.strftime("%Y-%m-%d")
 
                 res = fetch_and_stream_write_trades(
-                    session, api_key, t, day_str, rate_limit, outdir
+                    session, api_key, t, day_str, rate_limit, outdir, args
                 )
 
                 # Parsear resultado

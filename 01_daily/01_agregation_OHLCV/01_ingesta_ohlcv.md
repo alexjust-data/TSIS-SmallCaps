@@ -251,145 +251,81 @@ Sample 10 tickers:
 
 ### Trades Tick-Level
 
-* [ingest_trades_ticks.py](../../scripts/01_agregation_OHLCV/ingest_trades_ticks.py) - **Ingestor principal**
-    * Descarga DIARIA (2,555 días para 2019-2025, evita JSONs gigantes)
-    * Separación premarket (04:00-09:30) / market (09:30-16:00) - (reduce tamaño por archivo)
-    * Streaming writes
-    * Rate-limit adaptativo (0.12-0.40s) (ticks generan mucho más tráfico)
-    * Compresión ZSTD level 3 (trades tick son 10x más grandes que 1-min bars)
+**Componentes:**
+- [ingest_trades_ticks.py](../../scripts/01_agregation_OHLCV/ingest_trades_ticks.py) - Ingestor principal con descarga diaria, separacion premarket/market, rate-limit adaptativo (0.06-0.40s), compresion ZSTD level 1
+- [batch_trades_wrapper.py](../../scripts/01_agregation_OHLCV/batch_trades_wrapper.py) - Wrapper de micro-batches con paralelismo y resume logic
 
-* [batch_trades_wrapper.py](../../scripts/01_agregation_OHLCV/batch_trades_wrapper.py) - **Wrapper de micro-batches**
-    * Micro-batches de 15 tickers
-    * Paralelismo de 10 batches concurrentes
-    * Resume logic robusto (detecta días parciales y los reintenta)
+**Configuraciones de rendimiento:**
 
-* [launch_trades_wrapper.ps1](../../scripts/01_agregation_OHLCV/launch_trades_wrapper.ps1) - **Launcher PowerShell**
-    * Configuración optimizada (balanceada velocidad/estabilidad)
-    * Estimación: ~9-12 horas
+| Config | Batch Size | Max Concurrent | Rate Limit | Throughput | Tiempo Estimado | Riesgo |
+|--------|-----------|----------------|------------|-----------|-----------------|--------|
+| Base | 40 | 12 | 0.10s | 120 req/s | 4 dias | Bajo |
+| Turbo | 60 | 20 | 0.08s | 250 req/s | 2 dias | Medio |
+| Ultra Turbo | 60 | 40 | 0.08s | 500 req/s | 1 dia | Alto |
 
----
+**Comando actual (Ultra Turbo - 10:47 AM, 2025-11-04):**
 
 ```sh
-python scripts/01_agregation_OHLCV/batch_trades_wrapper.py  
-    --tickers-csv processed/universe/smallcaps_universe_2025-11-01.parquet 
-    --outdir raw/polygon/trades_ticks 
-    --from 2019-01-01 
-    --to 2025-11-01 
-    --batch-size 15 
-    --max-concurrent 10 
-    --rate-limit 0.15 
-    --ingest-script scripts/01_agregation_OHLCV/ingest_trades_ticks.py 
+cd "D:\TSIS_SmallCaps" && python scripts/01_agregation_OHLCV/batch_trades_wrapper.py \
+    --tickers-csv processed/universe/smallcaps_universe_2025-11-01.parquet \
+    --outdir "C:\TSIS_Data\trades_ticks_2019_2025" \
+    --from 2019-01-01 \
+    --to 2025-11-01 \
+    --batch-size 60 \
+    --max-concurrent 40 \
+    --rate-limit 0.08 \
+    --ingest-script scripts/01_agregation_OHLCV/ingest_trades_ticks.py \
     --resume
 ```
 
-```sh
-🚀 OPCIONES PARA ACELERAR LA DESCARGA:
+**Estado actual:**
+| Config | Batch Size | Max Concurrent | Rate Limit | Throughput | Tiempo Estimado | Riesgo |
+|--------|-----------|----------------|------------|-----------|-----------------|--------|
+| Ultra Turbo | 60 | 50 | 0.06s | 500 req/s | 1 dia | Alto |
+- Velocidad: 300 tickers/hora
+- Errores HTTP 429: 0
 
-1. AUMENTAR CONCURRENCIA (Opción más efectiva)
-# Actual: 10 batches concurrentes
-# Recomendado: 15-20 batches concurrentes
+**Datos descargados:**
 
-Pros:
-✅ Acelera 1.5-2x (de 5 días a 2.5-3 días)
-✅ Aprovecha mejor el throughput de Polygon API
-✅ No requiere cambios de código
-
-Contras:
-⚠️ Mayor uso de RAM (~3-4 GB)
-⚠️ Más requests simultáneos (pero dentro de límites)
-
-2. AUMENTAR BATCH SIZE
-# Actual: 15 tickers/batch
-# Recomendado: 20-25 tickers/batch
-
-Pros:
-✅ Menos overhead de inicio/fin de batch
-✅ Mejor utilización de recursos
-
-Contras:
-⚠️ Batches más lentos individualmente
-⚠️ Menos granularidad en el progreso
-
-3. REDUCIR RATE LIMIT (Con cuidado)
-# Actual: 0.15s/página (adaptativo 0.12-0.40s)
-# Agresivo: 0.10s/página
-
-Pros:
-✅ Más requests/segundo
-
-Contras:
-❌ Alto riesgo de 429 (rate limit exceeded)
-❌ Puede hacer que el adaptativo aumente el delay
-
-4. COMBINAR 1+2 (RECOMENDADO)
---batch-size 20 --max-concurrent 15
-
-Estimación: ~3 días (vs 5 días actual)
-
-📊 ¿Qué te recomiendo?
-
-OPCIÓN CONSERVADORA (recomendada):
---batch-size 20 --max-concurrent 15 --rate-limit 0.15
-
-Velocidad: ~2.5-3 días
-Riesgo: Bajo
-Ganancia: 40-50% más rápido
-
-OPCIÓN AGRESIVA (si tienes prisa):
---batch-size 25 --max-concurrent 20 --rate-limit 0.12
-
-Velocidad: ~2 días
-Riesgo: Medio (puede haber más 429s)
-Ganancia: 60% más rápido
-```
-
-lanzado a las 20:27
-```sh
-cd "D:\TSIS_SmallCaps" && python scripts/01_agregation_OHLCV/batch_trades_wrapper.py 
-    --tickers-csv processed/universe/smallcaps_universe_2025-11-01.parquet 
-    --outdir raw/polygon/trades_ticks 
-    --from 2019-01-01 --to 2025-11-01 
-    --batch-size 20 
-    --max-concurrent 15 
-    --rate-limit 0.15 
-    --ingest-script scripts/01_agregation_OHLCV/ingest_trades_ticks.py 
-    --resume
-```
 
 ## Estructura de Output
 
-```sh
-D:\TSIS_SmallCaps\
-├── raw/polygon/
-│   │
-│   ├── ohlcv_daily/                        # DAILY OHLCV
-│   │   └── {TICKER}/
-│   │       └── year={YYYY}/
-│   │           └── daily.parquet
-│   │               ├─ Columnas: date, open, high, low, close, volume,
-│   │               │            vwap, transactions, otc, ticker
-│   │               └─ Tamaño promedio: ~50-100 KB por ticker
-│   │
-│   └── ohlcv_intraday_1m/                  # INTRADAY 1-MINUTE
-│       └── {TICKER}/
-│           └── year={YYYY}/
-│               └── month={MM}/
-│                   └── minute.parquet (ZSTD compressed)
-│                       ├─ Columnas: timestamp, open, high, low, close,
-│                       │            volume, vwap, transactions, otc,
-│                       │            ticker, datetime
-│                       └─ Tamaño promedio: ~200-500 MB por ticker
-│                           (comprimido, puede ser 1-2 GB descomprimido)
-│
-└── processed/
-    └── ohlcv_audit/                        # AUDITORÍAS Y LOGS
-        ├── daily_download_summary.csv
-        ├── intraday_download_summary.csv
-        ├── failed_tickers.csv
-        └── download_logs/
-            ├── daily_YYYYMMDD_HHMMSS.log
-            └── intraday_batch_*.log
 ```
+C:\TSIS_Data\
+├── trades_ticks_2019_2025/          [TRADES TICK-LEVEL]
+│   ├── _batch_temp/                 Logs temporales de batches
+│   └── {TICKER}/
+│       └── year={YYYY}/
+│           └── month={MM}/
+│               └── day={YYYY-MM-DD}/
+│                   ├── premarket.parquet  (04:00-09:30 ET)
+│                   └── market.parquet     (09:30-16:00 ET)
+│
+D:\TSIS_SmallCaps\raw\polygon\
+├── ohlcv_daily/                     [DAILY OHLCV]
+│   └── {TICKER}/
+│       └── year={YYYY}/
+│           └── daily.parquet
+│
+└── ohlcv_intraday_1m/               [INTRADAY 1-MINUTE]
+    └── {TICKER}/
+        └── year={YYYY}/
+            └── month={MM}/
+                └── minute.parquet
+```
+
+**Detalles por tipo de datos:**
+
+| Tipo | Archivos/Ticker | Tamaño/Ticker | Columnas | Compresion |
+|------|----------------|---------------|----------|------------|
+| Trades Tick | ~1,400 | ~18 MB | ticker, timestamp, price, size, conditions, exchange | ZSTD level 1 |
+| Daily OHLCV | ~7 | ~50-100 KB | date, open, high, low, close, volume, vwap, transactions | ZSTD |
+| Intraday 1m | ~85 | ~200-500 MB | timestamp, open, high, low, close, volume, vwap, transactions | ZSTD |
+
+**Particiones:**
+- Trades Tick-Level: year/month/day (1 archivo por dia y sesion)
+- Daily OHLCV: year (todos los dias del ano en 1 archivo)
+- Intraday 1-Min: year/month (todos los minutos del mes en 1 archivo)
 
 ---
 
