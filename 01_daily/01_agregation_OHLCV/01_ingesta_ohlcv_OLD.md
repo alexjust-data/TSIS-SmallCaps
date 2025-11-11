@@ -1,0 +1,398 @@
+l# FASE B: Ingesta OHLCV Histórico (Daily + Intraday 1-Minute)
+
+## Contexto - De dónde venimos
+
+```bash
+════════════════════════════════════════════════════════════════════════════════
+FASE A COMPLETADA - UNIVERSO CONSTRUIDO (6,405 tickers Small Caps)
+════════════════════════════════════════════════════════════════════════════════
+
+INPUT PARA FASE B:
+├── processed/universe/smallcaps_universe_2025-11-01.parquet
+│   └── 6,405 tickers Small Caps enriquecidos
+│       ├─ Activos (< $2B): 3,105 tickers (48.5%)
+│       │  ├─ Market cap, description, employees, SIC code
+│       │  ├─ Splits: 2,009 tickers (31.4%)
+│       │  └─ Dividends: 1,768 tickers (27.6%)
+│       │
+│       └─ Inactivos preservados: 3,300 tickers (51.5%)
+│          ├─ Delisted dates (100% completitud)
+│          ├─ Splits históricos preservados
+│          └─ Dividends históricos preservados
+│          → ✅ ANTI-SURVIVORSHIP BIAS APLICADO
+│
+└── processed/corporate_actions/
+    ├─ splits/year=*/splits.parquet (3,420 eventos filtrados)
+    └─ dividends/year=*/dividends.parquet (71,291 eventos filtrados)
+
+PERÍODO EXPANDIDO: 2004-01-01 → 2025-11-01 (~22 años)
+OBJETIVO: Descargar OHLCV histórico (Daily + Intraday 1-minute) + Trades Tick-Level
+════════════════════════════════════════════════════════════════════════════════
+```
+
+## Roadmap - FASE B
+
+```bash
+                        ↓ DESDE FASE A
+    ════════════════════════════════════════════════════════════════════════════
+    INPUT: 6,405 tickers Small Caps (2004-2025, ~22 años)
+    ════════════════════════════════════════════════════════════════════════════
+                           │
+            ┌──────────────┴───────────────────────────┐
+            │                       │                  │
+            ↓                       ↓                  ↓
+    ┌─────────────────┐     ┌─────────────────┐     ┌─────────────────┐
+    │  DAILY OHLCV    │     │ INTRADAY 1-MIN  │     │  TRADES TICKS   │
+    │  (Paralelo)     │     │ (Micro-batches) │     │ (Pre+Market)    │
+    └─────────────────┘     └─────────────────┘     └─────────────────┘
+            │                       │                        │
+            │                       │                        │
+            ↓                       ↓                        ↓
+    raw/polygon/           raw/polygon/           raw/polygon/
+    ohlcv_daily/           ohlcv_intraday_1m/     trades/
+    └── {TICKER}/          └── {TICKER}/          └── {TICKER}/
+        └── year={YYYY}/       └── year={YYYY}/       └── year={YYYY}/
+            └── daily.parquet      └── month={MM}/         └── month={MM}/
+                                       └── minute.parquet      ├── premarket.parquet
+                                                               └── market.parquet
+            │                       │                        │
+            └───────────────────────┴────────────────────────┘
+                                    │
+                                    ↓
+            ════════════════════════════════════════════════════════════
+            FASE B COMPLETADA - OHLCV HISTÓRICO + TRADES TICK-LEVEL
+            ════════════════════════════════════════════════════════════
+```
+
+## Objetivo
+
+Descargar datos OHLCV históricos y trades tick-level para 6,405 tickers Small Caps usando Polygon API:
+
+1. **Daily aggregates** (2004-2025): Datos diarios para análisis de tendencias y backtesting de largo plazo
+2. **Intraday 1-minute** (2019-2025): Datos minuto a minuto para patrones intraday
+3. **Trades tick-level** (2004-2025): Trades individuales (premarket + market hours) para microestructura y análisis de liquidez
+
+**Características clave**:
+- ✅ Descarga paralela (Daily: ThreadPoolExecutor, Intraday: Micro-batches, Trades: Micro-batches)
+- ✅ Rate-limit adaptativo (evita 429 Too Many Requests)
+- ✅ Idempotente (merge automático, puede reiniciarse sin duplicados)
+- ✅ Particionado por año/mes (optimización storage y queries)
+- ✅ Compresión ZSTD (reduce ~50% espacio)
+- ✅ Adjusted prices (splits/dividends aplicados)
+- ✅ Separación premarket/market (filtrado por timestamp)
+
+---
+
+## Estrategia de Descarga
+
+### A. Daily OHLCV (Descarga Simple)
+
+**Endpoint**: `/v2/aggs/ticker/{ticker}/range/1/day/{from}/{to}`
+
+**Características**:
+- Descarga paralela simple (ThreadPoolExecutor con 12 workers)
+- Paginación cursor-based (50K registros por página)
+- Escritura particionada por año
+- Merge automático (idempotente)
+
+**Estimación**:
+- **Tiempo**: ~20-25 minutos (250-300 tickers/min)
+- **Tamaño**: ~30-40 GB sin compresión
+- **Success rate esperado**: >99%
+
+---
+
+### B. Intraday 1-Minute (Descarga Avanzada - Micro-batches)
+
+**Endpoint**: `/v2/aggs/ticker/{ticker}/range/1/minute/{from}/{to}`
+
+**Características**:
+- **Descarga MENSUAL** (evita JSONs de 20GB que saturan memoria)
+- **Micro-batches de 20 tickers** (evita "Atasco de Elefantes")
+- **8 batches concurrentes** (paralelismo controlado)
+- **Rate-limit adaptativo** (0.12-0.35s, acelera/frena según 429)
+- **Escritura streaming** por página (bajo uso de memoria)
+- **Compresión ZSTD level 2** (-50% tamaño)
+
+**Problema resuelto: "Atasco de Elefantes"**:
+```
+ANTES (descarga completa 2019-2025):
+- Ticker pesado (ej: AAPL) → JSON 20GB → Saturación de memoria
+- Bloqueaba todo el batch → Timeout → Reinicio manual
+
+AHORA (descarga mensual):
+- Ticker pesado → 252 requests pequeños (1 por mes)
+- Nunca satura memoria
+- Micro-batches de 20 tickers → Tickers pesados NO bloquean sistema
+```
+
+**Estimación**:
+- **Tiempo**: ~5-6 horas (250-300 tickers/hora promedio)
+- **Tamaño**: ~2-2.5 TB comprimido (ZSTD)
+- **Success rate esperado**: 100%
+
+---
+
+### C. Trades Tick-Level (Descarga Micro-batches - NUEVO)
+
+**Endpoint**: `/v3/trades/{ticker}?timestamp.gte={from}&timestamp.lte={to}`
+
+**Características**:
+- **Descarga DIARIA** (evita JSONs gigantes en tickers líquidos)
+- **Micro-batches de 15 tickers** (tickers líquidos generan MUCHO más volumen)
+- **6 batches concurrentes** (conservador para no saturar API)
+- **Separación premarket/market** (filtrado por timestamp 04:00-09:30 vs 09:30-16:00)
+- **Rate-limit adaptativo** (0.15-0.40s, más conservador que intraday)
+- **Compresión ZSTD level 3** (datos tick son MUY grandes)
+
+**Horarios de mercado (ET)**:
+```
+PREMARKET:  04:00 - 09:30 ET  → premarket.parquet
+MARKET:     09:30 - 16:00 ET  → market.parquet
+AFTERHOURS: 16:00 - 20:00 ET  → (NO descargado, fuera de scope)
+```
+
+**Estimación**:
+- **Tiempo**: ~8-12 horas (dependiendo de liquidez)
+- **Tamaño**: ~3-5 TB comprimido (ZSTD level 3)
+- **Success rate esperado**: >95%
+
+**Advertencia**: Small caps tienen mucho MENOS volumen que large caps, pero aun así pueden generar ~100K-1M trades/día en momentos de alta actividad (pump & dumps).
+
+---
+
+## Scripts y Herramientas
+
+### Daily OHLCV
+
+| Script | Descripción |
+|--------|-------------|
+| [ingest_ohlcv_daily.py](../../scripts/01_agregation_OHLCV/ingest_ohlcv_daily.py) | Descarga paralela de OHLCV diario |
+
+**Parámetros clave**:
+- `PAGE_LIMIT`: 50,000
+- `ADJUSTED`: True
+- `MAX_WORKERS`: 12
+- `TIMEOUT`: 35s
+
+```sh
+📊 RESUMEN DESCARGA DAILY
+==================================================
+Universo esperado:    6,405 tickers
+Descargados:          6,297 tickers
+Cobertura:            98.31%
+Faltantes:            108
+
+📁 SAMPLE  TICKERS:
+==================================================
+CUR      | 1 años | 211 rows | 2019-01-02 → 2019-10-31
+PACE     | 2 años | 203 rows | 2020-11-27 → 2021-09-20
+CHX      | 6 años | 1,284 rows | 2020-06-04 → 2025-07-15
+ESM      | 3 años | 351 rows | 2021-04-30 → 2023-03-09
+GT       | 7 años | 1,719 rows | 2019-01-02 → 2025-10-31
+
+❌ FALTANTES (108):
+==================================================
+Primeros 10: ['AANW', 'ABX', 'ACLL', 'AIRCW', 'AIRTV', 'AIVW', 'ALPX', 'ALVU', 'ARMKW', 'ARNCW']
+```
+---
+
+### Intraday 1-Minute
+
+| Script | Descripción |
+|--------|-------------|
+| [ingest_ohlcv_intraday_minute.py](../../scripts/01_agregation_OHLCV/ingest_ohlcv_intraday_minute.py) | Core de descarga intraday (mensual, streaming) |
+| [batch_intraday_wrapper.py](../../scripts/01_agregation_OHLCV/batch_intraday_wrapper.py) | Wrapper para micro-batches de 20 tickers |
+| [launch_wrapper.ps1](../../scripts/01_agregation_OHLCV/launch_wrapper.ps1) | PowerShell launcher (8 batches concurrentes) |
+
+**Parámetros clave**:
+- `PAGE_LIMIT`: 50,000 (5x menos requests vs 10K default)
+- `ADJUSTED`: True
+- `BATCH_SIZE`: 20 tickers
+- `CONCURRENT_BATCHES`: 8
+- `RATE_LIMIT_BASE`: 0.12s (adaptativo hasta 0.35s)
+- `COMPRESSION`: ZSTD level 2
+
+**Optimizaciones críticas**:
+1. Descarga mensual (84 meses para 2019-2025, evita JSON gigantes)
+2. PAGE_LIMIT 50K (reduce requests en 80%)
+3. Rate-limit adaptativo (acelera si no hay 429)
+4. Compresión ZSTD (-50% storage)
+5. TLS heredado (fix SSL handshake Windows)
+6. Pool mejorado (reduce handshake overhead)
+
+```sh
+📊 RESUMEN DESCARGA INTRADÍA 1-MINUTE
+============================================================
+Universo esperado:    6,405 tickers
+Descargados:          6,296 tickers
+Cobertura:            98.30%
+Faltantes:            109
+
+📁 SAMPLE 5 TICKERS:
+============================================================
+NGNE     | 3 años | 23 meses | 64,908 rows | 2023-12-19 14:15 → 2025-10-31 23:18
+COSO     | 5 años | 47 meses | 4,212 rows | 2021-12-31 19:03 → 2025-10-31 19:59
+WLDN     | 7 años | 82 meses | 166,886 rows | 2019-01-02 14:30 → 2025-10-31 21:43
+MCGA     | 1 años | 2 meses | 4,516 rows | 2025-09-08 08:01 → 2025-10-31 19:59
+AEZS     | 6 años | 68 meses | 215,156 rows | 2019-01-02 13:50 → 2024-08-08 19:39
+
+❌ FALTANTES (109):
+============================================================
+Primeros 10: ['AANW', 'ABX', 'ACLL', 'AEBIV', 'AIRCW', 'AIRTV', 'AIVW', 'ALPX', 'ALVU', 'ARMKW']
+
+💾 ESTIMACIÓN TAMAÑO:
+============================================================
+Sample 10 tickers:
+  Promedio/ticker: 2.9 MB
+  Total estimado:  17.5 GB (6296 tickers)
+``` 
+---
+
+### Trades Tick-Level
+
+**Componentes:**
+- [ingest_trades_ticks.py](../../scripts/01_agregation_OHLCV/ingest_trades_ticks.py) - Ingestor principal con descarga diaria, separacion premarket/market, rate-limit adaptativo (0.06-0.40s), compresion ZSTD level 1
+- [batch_trades_wrapper.py](../../scripts/01_agregation_OHLCV/batch_trades_wrapper.py) - Wrapper de micro-batches con paralelismo y resume logic
+
+**Configuraciones de rendimiento:**
+
+| Config | Batch Size | Max Concurrent | Rate Limit | Throughput | Tiempo Estimado | Riesgo |
+|--------|-----------|----------------|------------|-----------|-----------------|--------|
+| Base | 40 | 12 | 0.10s | 120 req/s | 4 dias | Bajo |
+| Turbo | 60 | 20 | 0.08s | 250 req/s | 2 dias | Medio |
+| Ultra Turbo | 60 | 40 | 0.08s | 500 req/s | 1 dia | Alto |
+
+**Comando actual (Ultra Turbo - EXPANDIDO 2004-2025, 2025-11-10 20:38):**
+
+```sh
+cd "D:\TSIS_SmallCaps" && python scripts/01_agregation_OHLCV/batch_trades_wrapper.py \
+    --tickers-csv processed/universe/smallcaps_universe_2025-11-01.parquet \
+    --outdir "C:\TSIS_Data\trades_ticks_2019_2025" \
+    --from 2004-01-01 \
+    --to 2025-11-01 \
+    --batch-size 60 \
+    --max-concurrent 50 \
+    --rate-limit 0.05 \
+    --ingest-script scripts/01_agregation_OHLCV/ingest_trades_ticks.py \
+    --resume
+```
+
+**Estado actual (2025-11-10 20:38):**
+| Config | Batch Size | Max Concurrent | Rate Limit | Throughput | Rango Temporal | Estado |
+|--------|-----------|----------------|------------|-----------|----------------|--------|
+| Ultra Turbo | 60 | 50 | 0.05s | 600 req/s | 2004-2025 (22 años) | EN PROGRESO |
+
+**Progreso 2019-2025 (completado):**
+- Velocidad: 300-350 tickers/hora (promedio final)
+- Errores HTTP 429: 0
+- Tiempo real: ~36 horas (completada 2025-11-09)
+- 6,274 tickers descargados con datos 2019-2025
+
+**Progreso 2004-2025 (activo):**
+- Inicio: 2025-11-10 20:38
+- Pendientes: 131 tickers (descarga completa 2004-2025)
+- Existentes: 6,274 tickers (solo faltan años 2004-2018)
+- Tiempo estimado total: 3-5 días continuos
+- Espacio adicional estimado: ~150-200 GB
+
+**Datos descargados:**
+
+```sh
+📊 RESUMEN DESCARGA TRADES TICK-LEVEL
+============================================================
+RANGO: 2004-2025 (22 años) - EN PROGRESO
+Universo esperado:    6,405 tickers
+Descargados (2019-2025): 6,274 tickers (97.95%)
+Completos (2019-2025):   2,760 (43.09%)
+Parciales (2019-2025):   3,514 (56.04%)
+En descarga (2004-2025): 131 tickers + 6,274 (años 2004-2018)
+
+📁 SAMPLE 5 TICKERS:
+============================================================
+ATVI     | 1 años | 113 archivos | 921,055 trades | 2018-12-31 23:00 -> 2019-03-15 23:59
+PEGI     | 2 años | 569 archivos | 2,220,783 trades | 2019-01-02 13:21 -> 2020-03-16 21:46
+WKME     | 4 años | 1,208 archivos | 1,609,206 trades | 2021-06-16 15:56 -> 2024-09-11 21:40
+VPCB     | 3 años | 561 archivos | 47,888 trades | 2021-05-05 19:51 -> 2023-03-20 21:15
+EDRY     | 7 años | 2,397 archivos | 533,765 trades | 2019-01-02 14:30 -> 2025-10-31 20:10
+
+💾 TAMAÑO (2019-2025):
+============================================================
+Tamaño total:         100.41 GB (comprimido ZSTD level 1)
+Promedio/ticker:      16.4 MB (solo años 2019-2025)
+Promedio/ticker-año:  2.34 MB
+
+💾 ESTIMACIÓN FINAL (2004-2025):
+============================================================
+Años 2004-2018:       ~150-200 GB adicionales
+Años 2019-2025:       100.41 GB (ya descargado)
+TOTAL ESTIMADO:       ~250-300 GB (22 años, 6,405 tickers)
+Espacio recomendado:  350 GB (con margen de seguridad)
+
+🔄 DESCARGA ACTIVA (2025-11-10 20:38):
+============================================================
+Proceso ID: 06d021
+Estado: DESCARGANDO años 2004-2025
+- 131 tickers: Descarga completa 2004-2025
+- 6,274 tickers: Solo años faltantes 2004-2018
+Tiempo estimado: 3-5 días continuos
+
+✅ SUCCESS RATE:
+============================================================
+- Tickers iniciados: 97.95% (6,274/6,405)
+- Completitud por ticker: Varía según liquidez
+  - Tickers completos (todos los años): 43.09%
+  - Tickers parciales (datos parciales): 56.04%
+  - Sin datos: 2.05%
+```
+
+**Notas sobre parcialidad:**
+- Un ticker "parcial" tiene datos pero no para todos los años esperados
+- Causas comunes:
+  1. Ticker inactivo deslistado antes de 2025
+  2. Ticker con gap de trading (no operó en ciertos períodos)
+  3. Ticker con muy bajo volumen (no trades registrados)
+- La lógica de completitud ajusta expectations por `delisted_utc`
+
+
+## Estructura de Output
+
+```
+C:\TSIS_Data\
+├── trades_ticks_2019_2025/          [TRADES TICK-LEVEL]
+│   ├── _batch_temp/                 Logs temporales de batches
+│   └── {TICKER}/
+│       └── year={YYYY}/
+│           └── month={MM}/
+│               └── day={YYYY-MM-DD}/
+│                   ├── premarket.parquet  (04:00-09:30 ET)
+│                   └── market.parquet     (09:30-16:00 ET)
+│
+D:\TSIS_SmallCaps\raw\polygon\
+├── ohlcv_daily/                     [DAILY OHLCV]
+│   └── {TICKER}/
+│       └── year={YYYY}/
+│           └── daily.parquet
+│
+└── ohlcv_intraday_1m/               [INTRADAY 1-MINUTE]
+    └── {TICKER}/
+        └── year={YYYY}/
+            └── month={MM}/
+                └── minute.parquet
+```
+
+**Detalles por tipo de datos:**
+
+| Tipo | Archivos/Ticker | Tamaño/Ticker | Columnas | Compresion |
+|------|----------------|---------------|----------|------------|
+| Trades Tick | ~1,400 | ~18 MB | ticker, timestamp, price, size, conditions, exchange | ZSTD level 1 |
+| Daily OHLCV | ~7 | ~50-100 KB | date, open, high, low, close, volume, vwap, transactions | ZSTD |
+| Intraday 1m | ~85 | ~200-500 MB | timestamp, open, high, low, close, volume, vwap, transactions | ZSTD |
+
+**Particiones:**
+- Trades Tick-Level: year/month/day (1 archivo por dia y sesion)
+- Daily OHLCV: year (todos los dias del ano en 1 archivo)
+- Intraday 1-Min: year/month (todos los minutos del mes en 1 archivo)
+
+---
+

@@ -271,8 +271,12 @@ def write_trades_by_day(df_premarket: pl.DataFrame, df_market: pl.DataFrame,
     return files_written
 
 def fetch_and_stream_write_trades(session: requests.Session, api_key: str, ticker: str,
-                                   trade_date: str, rate_limit_s: Optional[float], outdir: Path, args=None) -> str:
-    """Descarga trades para un día específico y escribe directamente"""
+                                   trade_date: str, rate_limit_s: Optional[float], outdir: Path, args=None) -> tuple:
+    """Descarga trades para un día específico y escribe directamente
+
+    Returns:
+        (status_message, num_requests, bytes_written)
+    """
     # Convertir fecha a timestamp Unix (nanosegundos)
     date_obj = dt.datetime.strptime(trade_date, "%Y-%m-%d")
     start_ns = int(date_obj.timestamp() * 1_000_000_000)
@@ -291,6 +295,7 @@ def fetch_and_stream_write_trades(session: requests.Session, api_key: str, ticke
     pages = 0
     rows_total = 0
     files_total = 0
+    bytes_written = 0
 
     cur_rl = rate_limit_s if rate_limit_s and rate_limit_s > 0 else None
     ok_streak, err_streak = 0, 0
@@ -318,7 +323,12 @@ def fetch_and_stream_write_trades(session: requests.Session, api_key: str, ticke
 
         # Normalizar y separar premarket/market
         df_premarket, df_market = normalize_trades(results, ticker, trade_date, args)
+
+        # Escribir y contar bytes
+        before_write = get_directory_size(outdir / ticker) if (outdir / ticker).exists() else 0
         files_total += write_trades_by_day(df_premarket, df_market, outdir, ticker, trade_date)
+        after_write = get_directory_size(outdir / ticker) if (outdir / ticker).exists() else 0
+        bytes_written += (after_write - before_write)
 
         cursor = parse_next_cursor(data.get("next_url")) if data else None
 
@@ -330,7 +340,19 @@ def fetch_and_stream_write_trades(session: requests.Session, api_key: str, ticke
         if cur_rl and cur_rl > 0:
             time.sleep(cur_rl)
 
-    return f"{ticker} {trade_date}: {rows_total:,} trades, {files_total} files ({pages} pages)"
+    status_msg = f"{ticker} {trade_date}: {rows_total:,} trades, {files_total} files ({pages} pages)"
+    return (status_msg, pages, bytes_written)
+
+def get_directory_size(path: Path) -> int:
+    """Calcula tamaño total de directorio en bytes"""
+    total = 0
+    try:
+        for entry in path.rglob('*'):
+            if entry.is_file():
+                total += entry.stat().st_size
+    except Exception:
+        pass
+    return total
 
 def main():
     ap = argparse.ArgumentParser(description="Descarga trades tick-level (streaming por día)")
@@ -395,24 +417,34 @@ def main():
     df = dt.datetime.strptime(args.date_from, "%Y-%m-%d").date()
     dt0 = dt.datetime.strptime(args.date_to, "%Y-%m-%d").date()
 
+    # Estadísticas globales
+    total_requests = 0
+    total_bytes = 0
+    start_time = time.time()
+
     for t in tickers:
         try:
             days_sum = 0
             rows_sum = 0
             files_sum = 0
+            ticker_requests = 0
+            ticker_bytes = 0
 
             log(f"Processing {t} (ticker {processed+1}/{len(tickers)})...")
 
             for day in date_range(df, dt0):
                 day_str = day.strftime("%Y-%m-%d")
 
-                res = fetch_and_stream_write_trades(
+                status_msg, requests_made, bytes_written = fetch_and_stream_write_trades(
                     session, api_key, t, day_str, rate_limit, outdir, args
                 )
 
+                ticker_requests += requests_made
+                ticker_bytes += bytes_written
+
                 # Parsear resultado
                 try:
-                    parts = res.split(":")
+                    parts = status_msg.split(":")
                     trades_part = parts[1].split(",")[0].strip().split()[0].replace(",", "")
                     rows_sum += int(trades_part) if trades_part.isdigit() else 0
                     days_sum += 1
@@ -423,6 +455,9 @@ def main():
                 if days_sum > 0 and days_sum % 200 == 0:
                     log(f"  {t}: {days_sum}/~2555 días | {rows_sum:,} trades")
 
+            total_requests += ticker_requests
+            total_bytes += ticker_bytes
+
             results.append(f"{t}: {rows_sum:,} trades, {days_sum} days")
             log(f"Completed {t}: {rows_sum:,} trades total")
         except Exception as e:
@@ -431,7 +466,10 @@ def main():
         processed += 1
 
         if processed % 10 == 0:
-            log(f"Progreso {processed:,}/{len(tickers):,}")
+            elapsed = time.time() - start_time
+            req_per_sec = total_requests / elapsed if elapsed > 0 else 0
+            mb_per_sec = (total_bytes / (1024*1024)) / elapsed if elapsed > 0 else 0
+            log(f"Progreso {processed:,}/{len(tickers):,} | {req_per_sec:.1f} req/s | {mb_per_sec:.2f} MB/s")
             (outdir / "trades_download.partial.log").write_text("\n".join(results), encoding="utf-8")
 
         if args.max_tickers_per_process and processed >= args.max_tickers_per_process:

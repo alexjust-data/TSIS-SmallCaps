@@ -170,6 +170,9 @@ def main():
 
     start = time.time()
     results = []
+    last_report_time = start
+    last_report_count = 0
+    error_counts = {}  # Contador de errores por tipo
 
     with ThreadPoolExecutor(max_workers=args.max_concurrent) as ex:
         futs = {ex.submit(run_batch, i, b, args, script_path, temp_dir): i for i, b in enumerate(batches)}
@@ -177,7 +180,47 @@ def main():
             bid, status, elapsed = fut.result()
             results.append((bid, status, elapsed))
             done = len(results); pct = done / len(batches) * 100
-            log(f"Batch {bid:04d}: {status} ({elapsed:.1f}s) | Progreso {done}/{len(batches)} = {pct:.1f}%")
+
+            # Contar errores por tipo
+            if status != "success":
+                error_counts[status] = error_counts.get(status, 0) + 1
+
+            # Calcular métricas de velocidad cada 10 batches o cada minuto
+            now = time.time()
+            if done % 10 == 0 or (now - last_report_time) >= 60:
+                elapsed_total = now - start
+                elapsed_since_last = now - last_report_time
+                batches_since_last = done - last_report_count
+
+                # Velocidad general
+                batches_per_hour = (done / elapsed_total) * 3600 if elapsed_total > 0 else 0
+                tickers_per_hour = (done * args.batch_size / elapsed_total) * 3600 if elapsed_total > 0 else 0
+
+                # Velocidad reciente
+                recent_batches_per_hour = (batches_since_last / elapsed_since_last) * 3600 if elapsed_since_last > 0 else 0
+                recent_tickers_per_hour = (batches_since_last * args.batch_size / elapsed_since_last) * 3600 if elapsed_since_last > 0 else 0
+
+                # ETA
+                remaining_batches = len(batches) - done
+                eta_hours = remaining_batches / batches_per_hour if batches_per_hour > 0 else 0
+
+                # Contar éxitos y errores
+                ok = sum(1 for _, s, _ in results if s == "success")
+                fail = done - ok
+
+                log(f"Batch {bid:04d}: {status} ({elapsed:.1f}s) | Progreso {done}/{len(batches)} = {pct:.1f}%")
+                log(f"  -> Velocidad: {batches_per_hour:.1f} batches/h ({tickers_per_hour:.1f} tickers/h)")
+                log(f"  -> Reciente: {recent_batches_per_hour:.1f} batches/h ({recent_tickers_per_hour:.1f} tickers/h)")
+                log(f"  -> ETA: {eta_hours:.1f} horas ({eta_hours/24:.1f} dias)")
+                log(f"  -> Status: {ok} OK, {fail} errores")
+                if error_counts:
+                    error_summary = ", ".join([f"{err}: {cnt}" for err, cnt in sorted(error_counts.items())])
+                    log(f"  -> Errores: {error_summary}")
+
+                last_report_time = now
+                last_report_count = done
+            else:
+                log(f"Batch {bid:04d}: {status} ({elapsed:.1f}s) | Progreso {done}/{len(batches)} = {pct:.1f}%")
 
     ok = sum(1 for _, s, _ in results if s == "success")
     fail = len(results) - ok
