@@ -1,215 +1,143 @@
 # Pipeline de Ingesta Trades Tick-Level
 
-1. [Descarga Trades 2004-2025 (6,405 tickers)](#descarga-trades-tick-level-2004-2025---6405-tickers)
-2. [Auditoría de Descarga](#auditoria-de-descarga-en-progreso)
-3. [Visualización del Pipeline](#route-map---pipeline-completo)
+**Fecha de última actualización**: 2025-11-12  
+**Estado**: Descarga 2019-2025 completada | Auditoría completa realizada  
+
+1. [Descarga Trades 20019-2025 (6,405 tickers)](#descarga-trades-2007-2025)
+2. [Auditoría de Descarga](#auditoria-de-descarga)
+3. [Scripts de Auditoría](#scripts-de-auditoria)
+4. [Resultados Actuales](#resultados-actuales)
 
 ---
 
-## Route Map - Pipeline Completo
+## Estado Actual del Pipeline
 
 ```bash
-════════════════════════════════════════════════════════════════════════════════
+================================================================================
                     PIPELINE DE INGESTA TRADES TICK-LEVEL
-════════════════════════════════════════════════════════════════════════════════
+================================================================================
 
-PASO 0: UNIVERSO SMALL CAPS (DESDE FASE A)
-────────────────────────────────────────────────────────────────────────────────
+PASO 0: UNIVERSO SMALL CAPS
+--------------------------------------------------------------------------------
 Input: processed/universe/smallcaps_universe_2025-11-01.parquet
 
-        🎯 UNIVERSO TARGET: 6,405 tickers
+        TARGET: 6,405 tickers Small Caps
         ├─ Activos (< $2B): 3,105 (48.5%)
         └─ Inactivos preservados: 3,300 (51.5%)
-           → ✅ ANTI-SURVIVORSHIP BIAS APLICADO
+           → ANTI-SURVIVORSHIP BIAS APLICADO
 
 
                           ↓  DESCARGA HISTÓRICA
 
 
-PASO 1: DESCARGA INICIAL 2019-2025 (COMPLETADA)
-────────────────────────────────────────────────────────────────────────────────
+PASO 1: DESCARGA 2019-2025 (COMPLETADA)
+--------------------------------------------------------------------------------
 Script: batch_trades_wrapper.py + ingest_trades_ticks.py
+Fecha: 2025-11-08 a 2025-11-09
 Período: 2019-01-01 → 2025-11-01 (7 años)
 Output: C:\TSIS_Data\trades_ticks_2019_2025\
 
-        📊 DESCARGA 2019-2025: COMPLETADA (2025-11-09)
-        ├─ Tickers descargados: 6,274/6,405 (97.95%)
+        STATUS: COMPLETADA
         ├─ Tiempo total: ~36 horas continuas
-        ├─ Velocidad promedio: 300-350 tickers/hora
-        ├─ Tamaño: 100.41 GB (comprimido ZSTD level 1)
-        └─ Errores HTTP 429: 0
+        ├─ Velocidad: 300-350 tickers/hora
+        ├─ Tamaño: ~100 GB (comprimido ZSTD level 1)
+        ├─ Errores HTTP 429: 0
+        └─ Rate limit perfecto
 
-        Configuración usada:
+        Configuración:
         ├─ Batch size: 60 tickers
         ├─ Max concurrent: 50 batches
         ├─ Rate limit: 0.05s (600 req/s teórico)
         └─ Con --resume (idempotente)
 
 
-                          ↓  PROBLEMA DETECTADO
+                          ↓  AUDITORÍA REALIZADA
 
 
-PASO 2: AUDITORÍA DE --resume (2025-11-10)
-────────────────────────────────────────────────────────────────────────────────
-Script: audit_download_complete.py
-Hallazgo: --resume SALTA tickers con datos existentes
+PASO 2: AUDITORÍA COMPLETA (2025-11-12)
+--------------------------------------------------------------------------------
+Scripts: audit_quick.py + audit_optimized.py
+Tiempo: ~50 minutos (procesamiento paralelo)
+Output: audit_optimized_*.csv
 
-        ⚠️  PROBLEMA IDENTIFICADO:
-        ├─ --resume verifica: ¿Tiene ALGÚN parquet?
-        │   └─ SI → SALTA ticker completamente
-        │   └─ NO → Descarga 2004-2025
-        │
-        ├─ Consecuencia:
-        │   ├─ 6,274 tickers con datos 2019-2025
-        │   └─ NO descargarían años 2004-2018
-        │
-        └─ Solución: Lanzar SIN --resume para 2004-2018
+        RESULTADOS (2019-2025) :
+        ├─ Total archivos: 
+        ├─ Tamaño total: 
+        ├─ Tickers completos: 
+        ├─ Tickers incompletos: 
+        ├─ Tickers faltantes:
+        └─ Ticker-meses totales: 
 
-
-                          ↓  CORRECCIÓN APLICADA
-
-
-PASO 3: DESCARGA EXPANDIDA 2004-2018 (EN PROGRESO)
-────────────────────────────────────────────────────────────────────────────────
-Inicio: 2025-11-11 08:38:49
-Proceso ID: 126815
-Script: batch_trades_wrapper.py (SIN --resume)
-Período: 2004-01-01 → 2018-12-31 (15 años)
-Output: C:\TSIS_Data\trades_ticks_2019_2025\ (misma carpeta)
-
-        🔄 DESCARGA 2004-2018: EN PROGRESO
-        ├─ Tickers procesando: 6,405 (TODOS)
-        ├─ Batches totales: 107 batches × 60 tickers
-        ├─ Concurrencia: 50 batches simultáneos
-        ├─ Merge automático: ✅ (sin duplicados)
-        └─ Tiempo estimado: ~18-22 horas
-
-        Configuración actual:
-        ├─ Batch size: 60 tickers
-        ├─ Max concurrent: 50 batches
-        ├─ Rate limit: 0.05s (600 req/s teórico)
-        └─ SIN --resume (procesa todos los tickers)
-
-        Merge automático verificado:
-        ├─ Función: write_trades_by_day() (líneas 223-271)
-        ├─ Lógica: Si archivo existe:
-        │   ├─ Lee archivo existente
-        │   ├─ Concatena nuevos datos
-        │   ├─ Elimina duplicados por timestamp
-        │   ├─ Mantiene último valor (keep="last")
-        │   └─ Sobrescribe archivo
-        └─ ✅ IDEMPOTENTE: Puede interrumpirse y relanzarse
+        RESULTADOS (2004-2018) :
+        ├─ Total archivos: 
+        ├─ Tamaño total: 
+        ├─ Tickers completos:  
+        ├─ Tickers incompletos: 
+        ├─ Tickers faltantes:
+        └─ Ticker-meses totales: 
 
 
-                          ↓  RESULTADO ESPERADO
+================================================================================
+RESULTADO FINAL ACTUAL
+================================================================================
 
-
-PASO 4: RESULTADO FINAL (ETA: 2025-11-12)
-────────────────────────────────────────────────────────────────────────────────
 Output: C:\TSIS_Data\trades_ticks_2019_2025\
 
-        🎉 COBERTURA COMPLETA: 6,405 tickers × 22 años
-        ├─ Años 2004-2018: 15 años históricos
-        ├─ Años 2019-2025: 7 años recientes
-        ├─ Tamaño estimado: ~250-300 GB (comprimido)
-        └─ Espacio usado: ~800 GB disponibles
+        COBERTURA REAL: 
+        ├─ Años 2019-2025: 
+        ├─ Tamaño: 
+        └─ Archivos: 
 
         Distribución de datos:
-        ├─ Trades totales: Miles de millones
-        ├─ Período: 2004-01-01 → 2025-11-01
-        ├─ Archivos/ticker: ~5,500 (22 años × 250 días)
-        └─ Estructura: ticker/year=YYYY/month=MM/day=DD/[session].parquet
+        ├─ Período principal: 
+        ├─ Período histórico: 
+        ├─ Estructura: ticker/year=YYYY/month=MM/day=DD/[session].parquet
+        └─ Sesiones: premarket.parquet + market.parquet
 
 
-════════════════════════════════════════════════════════════════════════════════
-✅ DESCARGA EN PROGRESO - ETA 18-22 HORAS
-════════════════════════════════════════════════════════════════════════════════
+Output: C:\TSIS_Data\trades_ticks_2004_2018_v2\
 
-RESULTADO ESPERADO: 6,405 tickers con cobertura 2004-2025
-├─ Período completo: 22 años (2004-2025)
-├─ Tamaño total: ~250-300 GB comprimidos
-├─ Merge automático: Sin duplicados
-└─ Listo para: Análisis de microestructura 2004-2025
+        COBERTURA REAL: 
+        ├─ Años 2004-2018: 
+        ├─ Años 2019-2025: 
+        ├─ Tamaño: 
+        └─ Archivos: 
 
-READY FOR: Feature Engineering & ML Training
-════════════════════════════════════════════════════════════════════════════════
+        Distribución de datos:
+        ├─ Período principal: 
+        ├─ Período histórico: Datos esporádicos 2004-2018
+        ├─ Estructura: ticker/year=YYYY/month=MM/day=DD/[session].parquet
+        └─ Sesiones: premarket.parquet + market.parquet
+
+================================================================================
 ```
 
-## Descarga Trades Tick-Level 2004-2025 - 6,405 tickers
+---
 
-* **Objetivo**: Descargar trades tick-level históricos (2004-2025) para 6,405 tickers Small Caps. Este proceso descarga trades individuales con separación premarket/market para análisis de microestructura y liquidez.
-* **Fuente de datos**: Polygon API `/v3/trades/{ticker}` (timestamp-based)
-* **Script principal**: [scripts/01_agregation_OHLCV/ingest_trades_ticks.py](../../scripts/01_agregation_OHLCV/ingest_trades_ticks.py)
-* **Wrapper**: [scripts/01_agregation_OHLCV/batch_trades_wrapper.py](../../scripts/01_agregation_OHLCV/batch_trades_wrapper.py)
-* **Output**: [C:\TSIS_Data\trades_ticks_2019_2025\](C:\TSIS_Data\trades_ticks_2019_2025\)
+## Descarga Trades 2019-2025
 
-```bash
-D:\TSIS_SmallCaps\
-├── scripts/
-│   └── 01_agregation_OHLCV/
-│       ├── ingest_trades_ticks.py          # Core: Descarga diaria + separación premarket/market
-│       └── batch_trades_wrapper.py         # Wrapper: Micro-batches + paralelismo
-│
-├── processed/universe/
-│   └── smallcaps_universe_2025-11-01.parquet   # 6,405 tickers Small Caps
-│
-└── C:\TSIS_Data\
-    └── trades_ticks_2019_2025/             # OUTPUT FINAL
-        ├── _batch_temp/                    # Logs temporales de batches
-        │   ├── batch_0000.csv              # Lista de tickers por batch
-        │   ├── batch_0000.log              # Log de progreso
-        │   └── batch_XXXX.log              # 107 batches totales
-        │
-        └── {TICKER}/                       # 6,405 tickers
-            └── year={YYYY}/                # 22 años (2004-2025)
-                └── month={MM}/             # 12 meses
-                    └── day={YYYY-MM-DD}/   # ~250 días/año
-                        ├── premarket.parquet    # 04:00-09:30 ET
-                        └── market.parquet       # 09:30-16:00 ET
-```
+### Objetivo
 
-**Comando de ejecución (ACTUAL - EN PROGRESO):**
+Descargar trades tick-level históricos para 6,405 tickers Small Caps con separación premarket/market para análisis de microestructura y liquidez.
 
-```bash
-cd "D:\TSIS_SmallCaps" && python scripts/01_agregation_OHLCV/batch_trades_wrapper.py \
-    --tickers-csv processed/universe/smallcaps_universe_2025-11-01.parquet \
-    --outdir "C:\TSIS_Data\trades_ticks_2019_2025" \
-    --from 2004-01-01 \
-    --to 2018-12-31 \
-    --batch-size 60 \
-    --max-concurrent 50 \
-    --rate-limit 0.05 \
-    --ingest-script scripts/01_agregation_OHLCV/ingest_trades_ticks.py
-    # SIN --resume para descargar años faltantes
-```
+### Scripts de Descarga
 
-```sh
-📊 1. Estructura de datos descargados
-----------------------------------------------------------------------------------------------------
-Ejemplo ticker GGL con datos 2006-2008:
+#### 1. `ingest_trades_ticks.py` - Core
 
-C:\TSIS_Data\trades_ticks_2019_2025\GGL\
-├── year=2006\
-│   └── month=04\
-│       └── day=2006-04-06\
-│           └── market.parquet              # 153,238 trades (09:30-16:00 ET)
-│   └── month=05\
-│       └── day=2006-05-01\
-│           ├── premarket.parquet           # Trades 04:00-09:30 ET
-│           └── market.parquet              # Trades 09:30-16:00 ET
-├── year=2007\
-└── year=2008\
+**Ubicación**: `scripts/01_agregation_OHLCV/ingest_trades_ticks.py`
 
-Columnas en cada parquet:
-┌────────┬───────────┬─────────────────────┬───────┬──────┬──────────┬─────────────┐
-│ ticker ┆ date      ┆ timestamp           ┆ price ┆ size ┆ exchange ┆ conditions  │
-├────────┼───────────┼─────────────────────┼───────┼──────┼──────────┼─────────────┤
-│ GGL    ┆2006-04-06 ┆1144318200000000000 ┆ 15.20 ┆ 100  ┆ Q        ┆ [@, T, I]   │
-│ GGL    ┆2006-04-06 ┆1144318201234567890 ┆ 15.21 ┆ 200  ┆ Q        ┆ [@, T]      │
-└────────┴───────────┴─────────────────────┴───────┴──────┴──────────┴─────────────┘
+**Función**: Descarga trades tick-level diarios con separación de sesiones.
 
-📊 2. Configuración técnica (ingest_trades_ticks.py)
-----------------------------------------------------------------------------------------------------
+**Características**:
+- Descarga por día individual
+- Separación automática premarket (04:00-09:30 ET) / market (09:30-16:00 ET)
+- Merge inteligente: Si archivo existe, concatena y elimina duplicados por timestamp
+- Compresión ZSTD level 1
+- Retry exponencial con backoff 1.6x
+- Rate limiting: 0.05s entre requests
+
+**Configuración**:
+```python
 BASE_URL = "https://api.polygon.io"
 PAGE_LIMIT = 50000                    # Trades por página
 TIMEOUT = 45                          # Segundos
@@ -217,156 +145,95 @@ RETRY_MAX = 8                         # Reintentos
 BACKOFF = 1.6                         # Factor exponencial
 COMPRESSION = "zstd"                  # Compresión
 COMPRESSION_LEVEL = 1                 # Nivel (1-22)
+```
 
-Horarios de mercado (ET):
-  PREMARKET:  04:00 - 09:30 ET  → premarket.parquet
-  MARKET:     09:30 - 16:00 ET  → market.parquet
+**Horarios de mercado (ET)**:
+```
+PREMARKET:  04:00 - 09:30 ET  → premarket.parquet
+MARKET:     09:30 - 16:00 ET  → market.parquet
+```
 
-📊 3. Configuración técnica (batch_trades_wrapper.py)
-----------------------------------------------------------------------------------------------------
+## Descarga Trades 2019-2025
+
+
+```sh
+python scripts\01_agregation_OHLCV\batch_trades_wrapper.py `
+    --tickers-csv audit_2004_2018_to_download.csv `
+    --outdir C:/TSIS_Data/trades_ticks_2004_2018_v2 `
+    --from 2004-01-01 `
+    --to 2018-12-31 `
+    --batch-size 50 `
+    --max-concurrent 25 `
+    --rate-limit 0.08 `
+    --ingest-script scripts\01_agregation_OHLCV\ingest_trades_ticks.py
+```
+```
+
+**Output por ticker**:
+
+```sh
+C:\TSIS_Data\trades_ticks_2019_2025\{TICKER}\
+└── year={YYYY}\
+    └── month={MM}\
+        └── day={YYYY-MM-DD}\
+            ├── premarket.parquet    # Trades 04:00-09:30 ET
+            └── market.parquet       # Trades 09:30-16:00 ET
+```
+
+## Descarga Trades 2004-2018
+
+```sh
+python scripts\01_agregation_OHLCV\batch_trades_wrapper.py `
+    --tickers-csv audit_2004_2018_to_download.csv `
+    --outdir C:/TSIS_Data/trades_ticks_2004_2018_v2 `
+    --from 2004-01-01 `
+    --to 2018-12-31 `
+    --batch-size 50 `
+    --max-concurrent 25 `
+    --rate-limit 0.08 `
+    --ingest-script scripts\01_agregation_OHLCV\ingest_trades_ticks.py
+```
+
+```
+C:\TSIS_Data\trades_ticks_2004_2018_v2\{TICKER}\
+└── year={YYYY}\
+    └── month={MM}\
+        └── day={YYYY-MM-DD}\
+            ├── premarket.parquet    # Trades 04:00-09:30 ET
+            └── market.parquet       # Trades 09:30-16:00 ET
+```
+
+**Schema de parquet**:
+```
+┌────────┬───────────┬─────────────────────┬───────┬──────┬──────────┬─────────────┐
+│ ticker ┆ date      ┆ timestamp           ┆ price ┆ size ┆ exchange ┆ conditions  │
+├────────┼───────────┼─────────────────────┼───────┼──────┼──────────┼─────────────┤
+│ str    ┆ date      ┆ i64 (nanoseconds)   ┆ f64   ┆ i64  ┆ str      ┆ list[str]   │
+└────────┴───────────┴─────────────────────┴───────┴──────┴──────────┴─────────────┘
+```
+
+#### 2. `batch_trades_wrapper.py` - Wrapper
+
+**Ubicación**: `scripts/01_agregation_OHLCV/batch_trades_wrapper.py`
+
+**Función**: Paralelización y gestión de micro-batches para procesar múltiples tickers simultáneamente.
+
+**Características**:
+- Divide universo en batches de 60 tickers
+- Ejecuta hasta 50 batches concurrentes
+- Logging independiente por batch
+- Idempotente con flag `--resume`
+- Rate limiting global
+
+**Configuración**:
+```python
 BATCH_SIZE = 60                       # Tickers por batch
 MAX_CONCURRENT = 50                   # Batches simultáneos
-RATE_LIMIT = 0.05                     # Segundos entre requests (600 req/s)
+RATE_LIMIT = 0.05                     # Segundos entre requests
 ```
 
-## Auditoría de Descarga (EN PROGRESO)
-
-* **Objetivo**: Verificar integridad de descarga, detectar problemas con --resume, y monitorear velocidad de descarga en tiempo real.
-* **Script**: [scripts/audit_download_complete.py](../../scripts/audit_download_complete.py)
-* **Uso**: Ejecutar periódicamente durante descarga larga para verificar progreso y detectar bloqueos.
-
-**Comando de ejecución:**
-
+**Comando de ejecución**:
 ```bash
-python D:\TSIS_SmallCaps\scripts\audit_download_complete.py
-```
-
-**Verificaciones realizadas:**
-
-```sh
-====================================================================================================
-AUDITORÍA - VERIFICACIONES AUTOMÁTICAS
-====================================================================================================
-
-1. Estado del proceso
-   - ¿Está corriendo?
-   - ¿Cuándo fue última actualización de logs?
-   - ¿Qué batches están activos?
-
-2. Funcionamiento de --resume
-   - ¿Cómo decide qué tickers saltar?
-   - ¿Verifica años específicos o solo existencia de datos?
-   - Impacto en descarga expandida 2004-2025
-
-3. Velocidad de descarga
-   - MB/minuto escribiéndose a disco
-   - API requests/minuto a Polygon
-   - Trades/minuto descargados
-
-4. Años descargados por ticker
-   - Sample de tickers recientemente modificados
-   - ¿Qué rango temporal tiene cada ticker?
-   - ¿Faltan años 2004-2018 en tickers existentes?
-
-5. Errores en logs
-   - HTTP 429 (rate limit)
-   - HTTP 500/503 (servidor)
-   - Excepciones Python
-```
-
-**Ejemplo de output:**
-
-```sh
-================================================================================
-AUDITORÍA COMPLETA - DESCARGA TRADES TICK-LEVEL 2004-2025
-================================================================================
-
-1. ESTADO DEL PROCESO
---------------------------------------------------------------------------------
-OK PROCESO ACTIVO - Logs modificados recientemente:
-   Batch 0000: ultima actualizacion hace 37s (08:31:47)
-   Batch 0001: ultima actualizacion hace 9s (08:32:16)
-
-2. FUNCIONAMIENTO DE --resume
---------------------------------------------------------------------------------
-LOGICA: Si un ticker tiene CUALQUIER archivo parquet (de cualquier anio),
-        entonces --resume lo marca como 'completado' y lo SALTA.
-
-CONSECUENCIA:
-  [OK] Tickers con datos 2019-2025 -> NO se re-descargan esos anios
-  [OK] Tickers con datos 2019-2025 -> NO se descargan anios 2004-2018
-  [OK] Solo descarga los 131 tickers sin ningun dato previo
-
-SOLUCION ACTUAL:
-  Lanzar SIN --resume para descargar años 2004-2018 en todos los tickers
-  Merge automático evita duplicados en años 2019-2025
-
-3. VELOCIDAD DE DESCARGA (ÚLTIMOS 5 MINUTOS)
---------------------------------------------------------------------------------
-Archivos creados/modificados: 45
-Datos escritos: 12.34 MB
-Velocidad: 2.47 MB/minuto (148.2 MB/hora)
-
-Ultimos 10 archivos:
-  08:32:15 |   245.3 KB | GGL/year=2007/month=03/day=2007-03-15/market.parquet
-  08:32:10 |   198.7 KB | GGL/year=2007/month=03/day=2007-03-14/market.parquet
-  08:32:05 |   312.1 KB | GGL/year=2007/month=03/day=2007-03-13/market.parquet
-
-4. REQUESTS A POLYGON API (ÚLTIMOS 5 MINUTOS)
---------------------------------------------------------------------------------
-Actualizaciones de progreso: 42 (ultimos 5 minutos)
-Velocidad estimada: ~8.4 actualizaciones/minuto
-
-Por batch:
-  Batch 0000: 22 actualizaciones
-  Batch 0001: 20 actualizaciones
-
-ALERTA  Cada actualizacion = ~200 API requests a Polygon
-   Total estimado: ~8,400 requests en 5 minutos
-   Rate: ~28.0 requests/segundo
-
-5. COBERTURA DE AÑOS POR TICKER
---------------------------------------------------------------------------------
-Tickers modificados en últimos 5 minutos:
-  GGL        |  3 años (2006-2008) | 08:17:29
-  SMTK       |  7 años (2019-2025) | 07:24:47
-  STBZ       |  7 años (2019-2025) | 05:55:58
-
-6. VERIFICACIÓN --resume CON TICKER EXISTENTE
---------------------------------------------------------------------------------
-Ticker: AAPL
-Años existentes: 2019, 2020, 2021, 2022, 2023, 2024, 2025
-Total años: 7
-
-Desglose:
-  2004-2018: 0 años → NINGUNO
-  2019-2025: 7 años → ['2019', '2020', '2021', '2022', '2023', '2024', '2025']
-
-ALERTA  CONFIRMADO: AAPL tiene 2019-2025 pero NO 2004-2018
-   --resume lo SALTO porque ya tiene datos
-
-7. ERRORES EN LOGS (ÚLTIMAS 100 LÍNEAS)
---------------------------------------------------------------------------------
-OK No se encontraron errores en logs recientes
-
-================================================================================
-RESUMEN DE AUDITORÍA
-================================================================================
-
-[OK] PROCESO: ACTIVO
-[OK] Velocidad: 2.47 MB/minuto (normal para años históricos)
-[OK] API Requests: ~8,400 en ultimos 5 min
-[OK] Sin errores HTTP 429 o 500
-[OK] Merge automático funcionando (sin duplicados)
-
-================================================================================
-```
-
-## Histórico de Comandos Ejecutados
-
-```bash
-# COMANDO 1: Descarga inicial 2019-2025 con --resume (COMPLETADA 2025-11-09)
-────────────────────────────────────────────────────────────────────────────────
 cd "D:\TSIS_SmallCaps" && python scripts/01_agregation_OHLCV/batch_trades_wrapper.py \
     --tickers-csv processed/universe/smallcaps_universe_2025-11-01.parquet \
     --outdir "C:\TSIS_Data\trades_ticks_2019_2025" \
@@ -377,156 +244,217 @@ cd "D:\TSIS_SmallCaps" && python scripts/01_agregation_OHLCV/batch_trades_wrappe
     --rate-limit 0.05 \
     --ingest-script scripts/01_agregation_OHLCV/ingest_trades_ticks.py \
     --resume
-
-Resultado:
-  ✅ 6,274/6,405 tickers descargados (97.95%)
-  ✅ 100.41 GB comprimidos (ZSTD level 1)
-  ✅ ~36 horas tiempo total
-  ✅ 300-350 tickers/hora velocidad promedio
-  ✅ 0 errores HTTP 429
-
-
-# COMANDO 2: Intento expansión 2004-2025 con --resume (MATADO 2025-11-10)
-────────────────────────────────────────────────────────────────────────────────
-cd "D:\TSIS_SmallCaps" && python scripts/01_agregation_OHLCV/batch_trades_wrapper.py \
-    --tickers-csv processed/universe/smallcaps_universe_2025-11-01.parquet \
-    --outdir "C:\TSIS_Data\trades_ticks_2019_2025" \
-    --from 2004-01-01 \
-    --to 2025-11-01 \
-    --batch-size 60 \
-    --max-concurrent 50 \
-    --rate-limit 0.05 \
-    --ingest-script scripts/01_agregation_OHLCV/ingest_trades_ticks.py \
-    --resume
-
-Proceso ID: 06d021
-Tiempo ejecutado: 11.7 horas
-Motivo de terminación: PROBLEMA DETECTADO
-
-Problema:
-  ⚠️  --resume saltó 6,274 tickers con datos 2019-2025
-  ⚠️  Solo procesó 131 tickers sin datos previos
-  ⚠️  Velocidad: 14 tickers/hora (21.4x más lento, warrants sin trades)
-
-Acción tomada:
-  🔴 Proceso matado a las 08:38:49 (2025-11-11)
-
-
-# COMANDO 3: Descarga 2004-2018 SIN --resume (EN PROGRESO 2025-11-11)
-────────────────────────────────────────────────────────────────────────────────
-cd "D:\TSIS_SmallCaps" && python scripts/01_agregation_OHLCV/batch_trades_wrapper.py \
-    --tickers-csv processed/universe/smallcaps_universe_2025-11-01.parquet \
-    --outdir "C:\TSIS_Data\trades_ticks_2019_2025" \
-    --from 2004-01-01 \
-    --to 2018-12-31 \
-    --batch-size 60 \
-    --max-concurrent 50 \
-    --rate-limit 0.05 \
-    --ingest-script scripts/01_agregation_OHLCV/ingest_trades_ticks.py
-    # SIN --resume
-
-Proceso ID: 126815
-Inicio: 2025-11-11 08:38:49
-Estado: ACTIVO
-
-Estrategia:
-  ✅ Descargar SOLO años 2004-2018
-  ✅ Para TODOS los 6,405 tickers
-  ✅ Merge automático evita duplicados en 2019-2025
-  ✅ ETA: ~18-22 horas
 ```
 
-## Resumen de Métricas
-
-```sh
-====================================================================================================
-📊 FASE 1: DESCARGA 2019-2025 (COMPLETADA)
-====================================================================================================
-Inicio:                   2025-11-08 ~12:00
-Fin:                      2025-11-09 ~00:00
-Tiempo total:             ~36 horas continuas
-Velocidad promedio:       300-350 tickers/hora
-Tickers procesados:       6,274/6,405 (97.95%)
-Errores HTTP 429:         0 (rate limit perfecto)
-Tamaño descargado:        100.41 GB (comprimido ZSTD level 1)
-
-Configuración:
-  - Período: 2019-01-01 → 2025-11-01 (7 años)
-  - Batch size: 60 tickers
-  - Max concurrent: 50 batches
-  - Rate limit: 0.05s (600 req/s teórico)
-  - Con --resume: ✅
-
-Completitud:
-  - Tickers completos: 2,760 (43.09%)
-  - Tickers parciales: 3,514 (56.04%)
-  - Sin datos: 131 (2.05%)
-
-
-====================================================================================================
-📊 FASE 2: DESCARGA 2004-2018 (EN PROGRESO)
-====================================================================================================
-Inicio:                   2025-11-11 08:38:49
-Proceso ID:               126815
-Estado:                   ACTIVO
-Tickers procesando:       6,405 (TODOS)
-Batches totales:          107 batches × 60 tickers
-Tiempo transcurrido:      ~1 hora
-Tiempo estimado restante: ~18-22 horas
-
-Configuración:
-  - Período: 2004-01-01 → 2018-12-31 (15 años)
-  - Batch size: 60 tickers
-  - Max concurrent: 50 batches
-  - Rate limit: 0.05s (600 req/s teórico)
-  - Sin --resume: ✅
-
-Merge automático:
-  - Función: write_trades_by_day() (ingest_trades_ticks.py:223-271)
-  - Lógica: Concatena + unique(subset=["timestamp"], keep="last")
-  - Resultado: Sin duplicados en años 2019-2025 existentes
-
-
-====================================================================================================
-📊 RESULTADO FINAL ESPERADO (ETA: 2025-11-12)
-====================================================================================================
-Años 2004-2018:           ~150-200 GB (estimado)
-Años 2019-2025:           100.41 GB (ya descargado)
-TOTAL ESPERADO:           ~250-300 GB (22 años completos)
-Espacio disponible:       800 GB (suficiente con margen)
-
-Trades estimados:
-  - Total trades: Miles de millones
-  - Promedio/ticker-año: ~5-10 millones de trades
-  - Variabilidad: Alta (small caps tienen menos volumen)
-
-Archivos por ticker:
-  - Total archivos: ~5,500 (22 años × 250 días trading)
-  - Premarket.parquet: ~2,750 archivos
-  - Market.parquet: ~2,750 archivos
-
-Promedio por ticker:
-  - Tamaño: ~40-50 MB (22 años comprimidos)
-  - Trades: ~100-200 millones (lifetime)
+**Output de logs**:
 ```
-
-## Monitoreo en Tiempo Real
-
-```bash
-# Ver progreso del wrapper principal
-tail -f C:/TSIS_Data/trades_ticks_2019_2025/_batch_temp/batch_0000.log
-
-# Ver batches activos recientemente
-ls -lah C:/TSIS_Data/trades_ticks_2019_2025/_batch_temp/ | grep "nov. 11"
-
-# Contar archivos descargados por ticker
-find C:/TSIS_Data/trades_ticks_2019_2025/GGL -name "*.parquet" | wc -l
-
-# Ver últimos archivos creados (últimos 5 minutos)
-find C:/TSIS_Data/trades_ticks_2019_2025 -name "*.parquet" -mmin -5 | head -20
-
-# Ejecutar auditoría completa
-python D:\TSIS_SmallCaps\scripts\audit_download_complete.py
+C:\TSIS_Data\trades_ticks_2019_2025\_batch_temp\
+├── batch_0000.csv      # Lista de tickers del batch
+├── batch_0000.log      # Log detallado de progreso
+├── batch_0001.csv
+├── batch_0001.log
+└── ...                 # 107 batches totales
 ```
 
 ---
+
+
+
+
+
+## Estructura de Archivos Final
+
+```
+D:\TSIS_SmallCaps\
+├── scripts/
+│   └── 01_agregation_OHLCV/
+│       ├── ingest_trades_ticks.py          # Core de descarga
+│       └── batch_trades_wrapper.py         # Wrapper paralelo
+│
+├── audit_quick.py                          # Auditoría rápida (no recomendado)
+├── audit_optimized.py                      # Auditoría optimizada (USAR ESTE)
+├── audit_detailed.py                       # Auditoría con timestamps (muy lento)
+│
+├── audit_optimized_tickers.csv             # Detalle por ticker
+├── audit_optimized_months.csv              # Cobertura mensual
+├── audit_optimized_pending.csv             # Tickers pendientes
+│
+├── processed/universe/
+│   └── smallcaps_universe_2025-11-01.parquet   # 6,405 tickers
+│
+└── C:\TSIS_Data\
+    └── trades_ticks_2019_2025/             # OUTPUT
+        ├── _batch_temp/                    # Logs de descarga
+        │   └── batch_*.log
+        │
+        └── {TICKER}/                       # 6,405 tickers
+            └── year={YYYY}/                # Años disponibles
+                └── month={MM}/             # 12 meses
+                    └── day={YYYY-MM-DD}/   # ~250 días/año
+                        ├── premarket.parquet    # 04:00-09:30 ET
+                        └── market.parquet       # 09:30-16:00 ET
+
+    │
+    └── trades_ticks_2004_2018_v2/          # OUTPUT
+        ├── _batch_temp/                    # Logs de descarga
+        │   └── batch_*.log
+        │
+        └── {TICKER}/                       # 6,405 tickers
+            └── year={YYYY}/                # Años disponibles
+                └── month={MM}/             # 12 meses
+                    └── day={YYYY-MM-DD}/   # ~250 días/año
+                        ├── premarket.parquet    # 04:00-09:30 ET
+                        └── market.parquet       # 09:30-16:00 ET
+```
+
+---
+
+## Descarga 2004-2018 y Sistema de Checkpointing (2025-11-17)
+
+### Objetivo
+
+Completar descarga histórica de trades tick-level para 2,249 tickers con datos confirmados en período 2004-2018, implementando sistema robusto de checkpointing con marcadores `_SUCCESS`.
+
+### Bug Crítico Detectado y Corregido
+
+**Fecha**: 2025-11-17
+
+**Problema identificado**:
+- Tickers con años incompletos (ej: PSEC solo 2004-2010, faltaban 2011-2018)
+- Código original usaba `and` para verificar archivos: `if premarket_fp.exists() and market_fp.exists()`
+- **89% de días solo tienen `market.parquet`** (sin premarket trades)
+- Resultado: `_SUCCESS` nunca se creaba, días truncados por crashes se perdían
+
+**Evidencia**:
+```
+HCKT:
+├─ 3,099 archivos parquet
+├─ 0 archivos _SUCCESS
+├─ 330 premarket.parquet (11%)
+└─ 2,769 market.parquet (89%)
+```
+
+**Causa root**:
+- Small caps tienen volumen muy bajo en premarket (04:00-09:30 ET)
+- Mayoría de días solo tienen trades en market hours (09:30-16:00 ET)
+- Condición `and` requería ambos archivos → marcador nunca se creaba
+
+### Solución Implementada: Checkpointing Robusto de 3 Casos
+
+**Ubicación**: [ingest_trades_ticks.py:446-492](../../scripts/01_agregation_OHLCV/ingest_trades_ticks.py#L446-L492)
+
+**Lógica corregida**:
+
+```python
+# CASO 1: Día ya completo (con _SUCCESS)
+if success_marker.exists():
+    # Contar trades y skip
+    # NO re-descargar
+    continue
+
+# CASO 2: Día con parquet(s) pero sin _SUCCESS → posible truncamiento
+if (premarket_fp.exists() or market_fp.exists()) and (not success_marker.exists()):
+    log(f"  {t} {day_str}: parquet(s) found but no _SUCCESS → re-downloading")
+
+    # RE-DESCARGAR para garantizar integridad
+    fetch_and_stream_write_trades(...)
+
+    # Marcar completo SOLO si descarga exitosa
+    if premarket_fp.exists() or market_fp.exists():
+        success_marker.touch()
+    continue
+
+# CASO 3: Día nuevo (sin parquet ni _SUCCESS)
+# Descarga normal
+fetch_and_stream_write_trades(...)
+if premarket_fp.exists() or market_fp.exists():
+    success_marker.touch()
+```
+
+**Cambios clave**:
+1. **Cambio `and` → `or`**: Acepta días con solo market.parquet
+2. **Re-descarga automática**: Días con parquet pero sin `_SUCCESS` se reparan automáticamente
+3. **Idempotencia**: Ejecutar múltiples veces es seguro
+4. **Protección contra truncamiento**: Solo marca `_SUCCESS` tras descarga completa
+
+**Beneficios**:
+- ✅ Cura días truncados por: cortes de luz, timeouts, crashes, errores de red
+- ✅ Permite resume seguro tras interrupciones
+- ✅ Detecta y repara inconsistencias automáticamente
+- ✅ Logging claro de días siendo reparados
+
+### Script de Auditoría de Integridad
+
+**Ubicación**: [auditar_dias.py](../../scripts/utils/auditar_dias.py)
+
+**Función**: Detecta días incompletos, corruptos o faltantes en dataset descargado.
+
+**Detecciones**:
+```python
+# CASO A: Día incompleto
+if (premarket_fp.exists() or market_fp.exists()) and not success_marker.exists():
+    issue = "PARTIAL_DAY_NO_SUCCESS"
+
+# CASO B: Día corrupto
+if success_marker.exists() and not (premarket_fp.exists() or market_fp.exists()):
+    issue = "SUCCESS_NO_PARQUET"
+
+# CASO C: Ticker sin directorio
+if not ticker_dir.exists():
+    issue = "TICKER_DIR_MISSING"
+```
+
+**Comando de ejecución**:
+```bash
+python scripts/utils/auditar_dias.py \
+    --outdir C:\TSIS_Data\trades_ticks_2004_2018_v2 \
+    --ping processed/universe/ping_binary_2004_2018.parquet \
+    --period-start 2004-01-01 \
+    --period-end 2018-12-31 \
+    --out audit_2004_2018.csv
+```
+
+**Output**: `audit_2004_2018.csv`
+```csv
+ticker,date,issue
+ABCD,2009-03-04,PARTIAL_DAY_NO_SUCCESS
+XYZZ,2007-11-14,SUCCESS_NO_PARQUET
+```
+
+### Workflow de Reparación
+
+```bash
+# PASO 1: Auditar
+python scripts/utils/auditar_dias.py \
+    --outdir C:\TSIS_Data\trades_ticks_2004_2018_v2 \
+    --ping processed/universe/ping_binary_2004_2018.parquet \
+    --period-start 2004-01-01 \
+    --period-end 2018-12-31 \
+    --out audit_2004_2018.csv
+
+# PASO 2: Extraer tickers afectados (PowerShell)
+Import-Csv audit_2004_2018.csv |
+    Select-Object -ExpandProperty ticker |
+    Sort-Object -Unique |
+    Out-File repair_tickers.csv
+
+# PASO 3: Re-descargar solo tickers afectados
+python scripts/01_agregation_OHLCV/batch_trades_wrapper.py \
+    --tickers-csv repair_tickers.csv \
+    --outdir C:\TSIS_Data\trades_ticks_2004_2018_v2 \
+    --from 2004-01-01 \
+    --to 2018-12-31 \
+    --batch-size 100 \
+    --max-concurrent 50 \
+    --rate-limit 0.05 \
+    --ingest-script scripts/01_agregation_OHLCV/ingest_trades_ticks.py
+```
+
+### Estado de Descarga 2004-2018
+
+**Período**: 2004-01-01 → 2018-12-31 (15 años)
+**Tickers**: 2,249 (confirmados con datos en Polygon)
+**Output**: `C:\TSIS_Data\trades_ticks_2004_2018_v2\`
+
+#### garantía de integridad
+

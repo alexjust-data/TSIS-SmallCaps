@@ -1,7 +1,5 @@
 # Comando Optimizado para Descarga de Trades Tick-Level
 
-## Configuración Final Recomendada (SUPER TURBO)
-
 ### Comando Principal (PowerShell)
 
 ```powershell
@@ -48,50 +46,7 @@ python scripts/01_agregation_OHLCV/batch_trades_wrapper.py `
 - ✅ Gestión automática de batches con ThreadPoolExecutor
 - ✅ Logs detallados por batch en `_batch_temp/`
 
-### Monitoreo de Errores 429
 
-**Monitor en tiempo real:**
-```bash
-cd "D:\TSIS_SmallCaps" && python monitor_429.py
-```
-
-**IMPORTANTE:** Los "429" en los logs son mayormente números de trades (ej: "426,429 trades"), NO errores HTTP.
-
-Para verificar errores REALES:
-```bash
-python -c "
-from pathlib import Path
-import re
-log_dir = Path('C:/TSIS_Data/trades_ticks_2019_2025/_batch_temp')
-for log in log_dir.glob('*.log'):
-    content = log.read_text(encoding='utf-8', errors='ignore')
-    if 'Rate Limit' in content or 'HTTP 429' in content:
-        print(f'{log.name}: ERROR 429 REAL')
-"
-```
-
-### Escenarios Alternativos
-
-#### Opción CONSERVADORA (sin throttling)
-```powershell
---batch-size 30 --max-concurrent 10 --rate-limit 0.15
-```
-- Throughput: ~67 req/s
-- Ideal para: Planes con límites estrictos
-
-#### Opción BALANCED (recomendada para 24/7)
-```powershell
---batch-size 40 --max-concurrent 12 --rate-limit 0.10
-```
-- Throughput: ~120 req/s
-- Ideal para: Descargas largas sin supervisión
-
-#### Opción SUPER TURBO (actual - máximo rendimiento)
-```powershell
---batch-size 60 --max-concurrent 20 --rate-limit 0.08
-```
-- Throughput: ~250 req/s
-- Ideal para: Descargas rápidas con monitoreo
 
 ### Flags Opcionales para Optimizar
 
@@ -134,32 +89,4 @@ C:\TSIS_Data\trades_ticks_2019_2025\
 └── trades_download.log       # Log consolidado final
 ```
 
-### Progreso Actual
 
-- **Inicio:** 09:06 am, 2025-11-04
-- **Tickers completados:** 501 de 6,405 (7.8%)
-- **Configuración:** SUPER TURBO (60/20/0.08)
-- **Estado:** ✅ Corriendo sin errores 429 reales
-
-### Consejos del Sistema
-
-1. **Disco:** Excluir `C:\TSIS_Data\` del antivirus
-2. **Red:** Cable ethernet (no WiFi)
-3. **Energía:** Desactivar suspensión
-4. **Disco:** Idealmente NVMe para I/O rápido
-
-### Estimación de Tiempo
-
-Con SUPER TURBO (250 req/s):
-- ~2,500 días × 6,405 tickers = ~16M días-ticker
-- Promedio ~5-10 páginas/día-ticker = ~80-160M páginas
-- A 250 req/s = **3.7-7.4 días** de descarga continua
-
-Con BALANCED (120 req/s):
-- **7.7-15.4 días** de descarga continua
-
----
-
-**Última actualización:** 2025-11-04 09:14 am
-**Configuración activa:** SUPER TURBO (60/20/0.08)
-**Errores 429 reales:** 0

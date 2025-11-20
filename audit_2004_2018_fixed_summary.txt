@@ -1,0 +1,39 @@
+================================================================================
+AUDITORÍA COMPLETA 2004-2018 - RESUMEN EJECUTIVO
+================================================================================
+Fecha: 2025-11-18 17:37:02
+Periodo: 2004-01-01 -> 2018-12-31
+NOTA: Dias esperados calculados por ticker segun first_day
+
+TICKERS:
+  Total con datos (Polygon):       2,249
+  ✅ Completos:                     0 (0.0%)
+  ⚠️  Incompletos (sin _SUCCESS):   1,560 (69.4%)
+  ⚠️  Incompletos (días faltantes):  41 (1.8%)
+  ❌ Vacíos:                        532 (23.7%)
+  ❌ Faltantes:                     116 (5.2%)
+
+DÍAS:
+  Total días esperados:            3,216,596
+  ✅ Días con _SUCCESS:            22,043 (0.7%)
+  ⚠️  Días sin _SUCCESS:           1,676,224 (52.1%)
+  ❌ Días faltantes:               1,518,329 (47.2%)
+
+ACCIÓN REQUERIDA:
+  Tickers a descargar/reparar:     2,249
+  Ver archivo: audit_2004_2018_fixed_to_download.csv
+
+COMANDO PARA REPARACIÓN:
+```bash
+python scripts/01_agregation_OHLCV/batch_trades_wrapper.py \
+    --tickers-csv audit_2004_2018_fixed_to_download.csv \
+    --outdir C:/TSIS_Data/trades_ticks_2004_2018_v2 \
+    --from 2004-01-01 \
+    --to 2018-12-31 \
+    --batch-size 100 \
+    --max-concurrent 50 \
+    --rate-limit 0.05 \
+    --ingest-script scripts/01_agregation_OHLCV/ingest_trades_ticks.py
+```
+
+================================================================================

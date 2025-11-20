@@ -1,4 +1,4 @@
-l# FASE B: Ingesta OHLCV Histórico (Daily + Intraday 1-Minute)
+# FASE B: Ingesta OHLCV Histórico (Daily + Intraday 1-Minute)
 
 ## Contexto - De dónde venimos
 
@@ -30,7 +30,7 @@ OBJETIVO: Descargar OHLCV histórico (Daily + Intraday 1-minute) + Trades Tick-L
 ════════════════════════════════════════════════════════════════════════════════
 ```
 
-## Roadmap - FASE B
+## Roadmap - FASE B: Ingesta OHLCV Histórico (Daily + Intraday 1-Minute + ticks)
 
 ```bash
                         ↓ DESDE FASE A

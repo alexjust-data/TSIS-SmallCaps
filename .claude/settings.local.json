@@ -1,7 +1,10 @@
 {
   "permissions": {
     "allow": [
-      "Bash(python:*)"
+      "Bash(python:*)",
+      "Bash(powershell -Command \"Get-Content ''C:\\TSIS_Data\\trades_ticks_2004_2018_v2\\_batch_temp\\batch_0000.log'' | Select-String ''ERROR|Exception|Traceback|failed|crash'' -Context 2,2 | Select-Object -First 20\")",
+      "Bash(powershell -Command \"$lines = Get-Content ''C:\\TSIS_Data\\trades_ticks_2004_2018_v2\\_batch_temp\\batch_0000.log''; $lines[-50..-1]\")",
+      "Bash(powershell -Command:*)"
     ],
     "deny": [],
     "ask": []

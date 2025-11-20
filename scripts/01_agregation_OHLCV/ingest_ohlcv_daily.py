@@ -179,8 +179,11 @@ def rows_to_df(rows: List[Dict[str, Any]], ticker: str) -> pl.DataFrame:
     for col, typ in [("t", pl.Int64), ("o", pl.Float64), ("h", pl.Float64),
                      ("l", pl.Float64), ("c", pl.Float64), ("v", pl.Float64),
                      ("n", pl.Int64), ("vw", pl.Float64)]:
-        picks[col] = (df[col].cast(typ) if col in df.columns
-                     else pl.Series(name=col, values=[], dtype=typ))
+        if col in df.columns:
+            picks[col] = df[col].cast(typ)
+        else:
+            # Crear Serie con NULLs del mismo tamaño que el DataFrame
+            picks[col] = pl.Series(name=col, values=[None] * df.height, dtype=typ)
 
     out = pl.DataFrame(picks)
 

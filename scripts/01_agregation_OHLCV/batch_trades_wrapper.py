@@ -28,6 +28,10 @@ from typing import List, Set, Tuple
 from datetime import datetime
 import polars as pl
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from dotenv import load_dotenv
+
+# Cargar variables de entorno desde .env
+load_dotenv(Path(__file__).parent.parent.parent / ".env")
 
 def log(msg: str) -> None:
     print(f"[{datetime.now():%Y-%m-%d %H:%M:%S}] {msg}", flush=True)
@@ -96,7 +100,7 @@ def run_batch(batch_id: int, tickers: List[str], args, script_path: Path, temp_d
         "--to", args.date_to,
         "--rate-limit", str(args.rate_limit),
         "--max-tickers-per-process", str(len(tickers)),
-        "--max-workers", "1",
+        #"--max-workers", "1",
     ]
 
     env = os.environ.copy()
@@ -174,8 +178,11 @@ def main():
     last_report_count = 0
     error_counts = {}  # Contador de errores por tipo
 
+    log(f"Iniciando ThreadPoolExecutor con {args.max_concurrent} workers...")
     with ThreadPoolExecutor(max_workers=args.max_concurrent) as ex:
+        log(f"Submitting {len(batches)} batches...")
         futs = {ex.submit(run_batch, i, b, args, script_path, temp_dir): i for i, b in enumerate(batches)}
+        log(f"Batches submitted. Waiting for completion...")
         for fut in as_completed(futs):
             bid, status, elapsed = fut.result()
             results.append((bid, status, elapsed))
