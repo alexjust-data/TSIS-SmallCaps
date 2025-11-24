@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-Descarga ticks faltantes desde Polygon usando el CSV de fechas faltantes.
-Input: CSV con columnas ticker,missing_date
+Descarga quotes (bid/ask NBBO) desde Polygon para todos los tickers.
+Estructura: {outdir}/{TICKER}/year={YYYY}/month={MM}/day={YYYY-MM-DD}/quotes.parquet
 """
 
 import polars as pl
@@ -19,9 +19,9 @@ def log(msg):
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     print(f"[{timestamp}] {msg}", flush=True)
 
-def download_ticks_for_date(client, ticker, date, outdir, max_retries=3):
+def download_quotes_for_date(client, ticker, date, outdir, max_retries=3):
     """
-    Descarga ticks (market) para un ticker en una fecha específica.
+    Descarga quotes (NBBO bid/ask) para un ticker en una fecha específica.
     Retorna True si exitoso, False si error.
     Incluye reintentos con backoff exponencial para manejar timeouts.
     """
@@ -29,48 +29,53 @@ def download_ticks_for_date(client, ticker, date, outdir, max_retries=3):
 
     # Path de salida
     output_path = Path(outdir) / ticker / f"year={year}" / f"month={month}" / f"day={date}"
-    market_file = output_path / "market.parquet"
+    quotes_file = output_path / "quotes.parquet"
 
     # Skip si ya existe
-    if market_file.exists():
+    if quotes_file.exists():
         return True
 
     for attempt in range(max_retries):
         try:
-            # Descargar trades (market hours: 09:30-16:00 ET)
-            # No usar 'date' parameter junto con timestamp_gte/lt
-            trades = []
-            for trade in client.list_trades(
+            # Descargar quotes (market hours: 09:30-16:00 ET)
+            quotes = []
+            for quote in client.list_quotes(
                 ticker,
                 limit=50000,
                 timestamp_gte=date + "T09:30:00-05:00",
                 timestamp_lt=date + "T16:00:00-05:00"
             ):
-                trades.append({
-                    'timestamp': trade.sip_timestamp,
-                    'price': trade.price,
-                    'size': trade.size,
-                    'exchange': trade.exchange,
-                    'conditions': ','.join(str(c) for c in trade.conditions) if trade.conditions else '',
+                quotes.append({
+                    'timestamp': quote.sip_timestamp,
+                    'bid_price': quote.bid_price,
+                    'bid_size': quote.bid_size,
+                    'bid_exchange': quote.bid_exchange,
+                    'ask_price': quote.ask_price,
+                    'ask_size': quote.ask_size,
+                    'ask_exchange': quote.ask_exchange,
+                    'conditions': ','.join(str(c) for c in quote.conditions) if quote.conditions else '',
                 })
 
-            if not trades:
-                # Sin trades, crear archivo vacío
+            if not quotes:
+                # Sin quotes, crear archivo vacío
                 output_path.mkdir(parents=True, exist_ok=True)
                 df = pl.DataFrame({
                     'timestamp': [],
-                    'price': [],
-                    'size': [],
-                    'exchange': [],
+                    'bid_price': [],
+                    'bid_size': [],
+                    'bid_exchange': [],
+                    'ask_price': [],
+                    'ask_size': [],
+                    'ask_exchange': [],
                     'conditions': []
                 })
-                df.write_parquet(market_file)
+                df.write_parquet(quotes_file)
                 return True
 
             # Guardar
             output_path.mkdir(parents=True, exist_ok=True)
-            df = pl.DataFrame(trades)
-            df.write_parquet(market_file)
+            df = pl.DataFrame(quotes)
+            df.write_parquet(quotes_file)
 
             return True
 
@@ -86,9 +91,9 @@ def download_ticks_for_date(client, ticker, date, outdir, max_retries=3):
     return False
 
 def main():
-    parser = argparse.ArgumentParser(description='Descargar ticks faltantes desde CSV')
-    parser.add_argument('--missing-csv', required=True, help='CSV con columnas ticker,missing_date')
-    parser.add_argument('--outdir', required=True, help='Directorio de salida (ej: C:\\TSIS_Data\\trades_ticks_2004_2018)')
+    parser = argparse.ArgumentParser(description='Descargar quotes (bid/ask) desde CSV de fechas')
+    parser.add_argument('--dates-csv', required=True, help='CSV con columnas ticker,date (todas las fechas a descargar)')
+    parser.add_argument('--outdir', required=True, help='Directorio de salida (ej: C:\\TSIS_Data\\quotes_ticks_2004_2018)')
     parser.add_argument('--api-key', help='Polygon API key (o usar POLYGON_API_KEY env var)')
     parser.add_argument('--workers', type=int, default=10, help='Número de workers paralelos (default: 10)')
     parser.add_argument('--limit', type=int, help='Limitar a N fechas (para testing)')
@@ -105,12 +110,16 @@ def main():
     client = RESTClient(api_key)
 
     log("=" * 80)
-    log("DESCARGA DE TICKS FALTANTES")
+    log("DESCARGA DE QUOTES (BID/ASK NBBO)")
     log("=" * 80)
 
-    # Cargar CSV de fechas faltantes
-    log(f"Cargando fechas faltantes desde {args.missing_csv}")
-    df = pl.read_csv(args.missing_csv)
+    # Cargar CSV de fechas
+    log(f"Cargando fechas desde {args.dates_csv}")
+    df = pl.read_csv(args.dates_csv)
+
+    # Normalizar nombre de columna de fecha
+    if 'missing_date' in df.columns:
+        df = df.rename({'missing_date': 'date'})
 
     if args.limit:
         df = df.head(args.limit)
@@ -125,7 +134,7 @@ def main():
 
     # Agrupar por ticker para mostrar progreso
     ticker_groups = df.group_by('ticker').agg(pl.len().alias('count')).sort('count', descending=True)
-    log(f"  Ticker con más fechas faltantes: {ticker_groups[0, 'ticker']} ({ticker_groups[0, 'count']} días)")
+    log(f"  Ticker con más fechas: {ticker_groups[0, 'ticker']} ({ticker_groups[0, 'count']} días)")
 
     log("")
     log(f"Comenzando descarga paralela con {args.workers} workers...")
@@ -142,11 +151,11 @@ def main():
         api_key, ticker, date, outdir = task_data
         # Cada worker necesita su propio client
         worker_client = RESTClient(api_key)
-        success = download_ticks_for_date(worker_client, ticker, date, outdir)
+        success = download_quotes_for_date(worker_client, ticker, date, outdir)
         return (ticker, date, success)
 
     # Preparar tasks
-    tasks = [(api_key, row['ticker'], row['missing_date'], args.outdir)
+    tasks = [(api_key, row['ticker'], row['date'], args.outdir)
              for row in df.iter_rows(named=True)]
 
     # Ejecutar en paralelo

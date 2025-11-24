@@ -1,6 +1,11 @@
 # Data files (large, not for version control)
 raw/
 processed/
+
+# CSV files in root (generated data)
+/*.csv
+*.txt
+!README.txt
 # Exception: Keep small universe and report CSVs
 !processed/universe/
 !processed/universe/*.csv
