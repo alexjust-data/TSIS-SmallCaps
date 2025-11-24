@@ -170,3 +170,68 @@ PS D:\TSIS_SmallCaps> python scripts\01_agregation_OHLCV\generate_quotes_dates.p
 [2025-11-24 10:57:29] COMPLETADO
 [2025-11-24 10:57:29] ================================================================================
 ```
+
+**Estrategia por Fases Percentiles de volumen**
+
+**DESCARGA**
+
+Para 2019-2025
+
+```sh
+# Estadísticas 2019-2025 para  percentil 95 y --generate-csv
+cd D:\TSIS_SmallCaps
+python "scripts\02_final\quotes_phased_strategy.py" 
+  --daily-root "raw/polygon/ohlcv_daily" 
+  --ping-file "processed/universe/ping_range_2019_2025.parquet" 
+  --year-min 2019 
+  --year-max 2025 
+  --generate-csv P95
+
+Analizando 6297 tickers...
+```
+Para 2004-2018:
+
+```sh
+# Estadisticas 2004-2018 para  percentil 95 y --generate-csv
+cd D:\TSIS_SmallCaps
+python "scripts\02_final\quotes_phased_strategy.py" `
+  --daily-root "raw/polygon/ohlcv_daily" `
+  --ping-file "processed/universe/ping_range_2004_2018.parquet" `
+  --year-min 2004 `
+  --year-max 2018 `
+  --generate-csv P95
+```
+
+Para 2019-2025
+
+```sh
+# Primera ejecución
+python scripts\02_final\download_quotes_fase3.py `
+  --csv quotes_P90_2019_2025_P95.csv `
+  --output "C:\TSIS_Data\quotes_p90_2019_2025" `
+  --concurrent 50
+
+# Si se interrumpe, retomar con:
+python scripts\02_final\download_quotes_fase3.py `
+  --csv quotes_P90_2019_2025_P95.csv `
+  --output "C:\TSIS_Data\quotes_p90_2019_2025" `
+  --concurrent 50 `
+  --resume
+```
+
+Para 2004-2018:
+
+```sh
+# Primera ejecución
+python scripts\02_final\download_quotes_fase3.py `
+  --csv quotes_P90_2004_2018_P95.csv `
+  --output "C:\TSIS_Data\quotes_p90_2004_2018" `
+  --concurrent 50
+
+# Si se interrumpe, retomar con:
+python scripts\02_final\download_quotes_fase3.py `
+  --csv quotes_P90_2004_2018_P95.csv `
+  --output "C:\TSIS_Data\quotes_p90_2004_2018" `
+  --concurrent 50 `
+  --resume
+```
