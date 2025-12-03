@@ -106,7 +106,7 @@ PS D:\TSIS_SmallCaps> # 2019-2025
 >> python scripts\01_agregation_OHLCV\generate_quotes_dates.py `
 >>   --daily-root raw/polygon/ohlcv_daily `
 >>   --ping-range processed/universe/ping_range_2019_2025.parquet `
->>   --output-csv quotes_dates_2019_2025.csv `
+>>   --output-csv 01_daily\01_agregation_OHLCV\quotes_dates_2019_2025.csv `
 >>   --year-min 2019 --year-max 2025
 [2025-11-24 10:05:56] ================================================================================
 [2025-11-24 10:05:56] GENERADOR DE FECHAS PARA QUOTES
@@ -141,10 +141,11 @@ PS D:\TSIS_SmallCaps>
 
 
 ```sh
-PS D:\TSIS_SmallCaps> python scripts\01_agregation_OHLCV\generate_quotes_dates.py `
+PS D:\TSIS_SmallCaps> 
+python scripts\01_agregation_OHLCV\generate_quotes_dates.py `
 >>   --daily-root raw/polygon/ohlcv_daily `
 >>   --ping-range processed/universe/ping_range_2004_2018.parquet `
->>   --output-csv quotes_dates_2004_2018.csv `
+>>   --output-csv 01_daily\01_agregation_OHLCV\files_csvquotes_dates_2004_2018.csv `
 >>   --year-min 2004 --year-max 2018
 
 [2025-11-24 10:33:58] ================================================================================
@@ -175,24 +176,104 @@ PS D:\TSIS_SmallCaps> python scripts\01_agregation_OHLCV\generate_quotes_dates.p
 
 **DESCARGA**
 
-Para 2019-2025
+**Para 2019-2025**
 
 ```sh
-# Estadísticas 2019-2025 para  percentil 95 y --generate-csv
-cd D:\TSIS_SmallCaps
-python "scripts\02_final\quotes_phased_strategy.py" 
-  --daily-root "raw/polygon/ohlcv_daily" 
-  --ping-file "processed/universe/ping_range_2019_2025.parquet" 
-  --year-min 2019 
-  --year-max 2025 
-  --generate-csv P95
+# 2019-2025 Estadísticas - GENERANDO CSV P95
+python scripts\02_final\quotes_phased_strategy.py `
+  --daily-root raw/polygon/ohlcv_daily `
+  --ping-file processed/universe/ping_range_2019_2025.parquet `
+  --year-min 2019 `
+  --year-max 2025 `
+  --generate-csv P95 `
+  --output-dir 01_daily\01_agregation_OHLCV\files_csv `
+  --download-dir  \TSIS_SmallCaps\01_daily\01_agregation_OHLCV\files_csv
 
 Analizando 6297 tickers...
+============================================================
+DISTRIBUCIÓN GLOBAL DE VOLUMEN
+============================================================
+Total días analizados: 5,526,516
+Percentil 50 (mediana): 100,351
+Percentil 75: 414,458
+Percentil 90: 1,209,222
+Percentil 95: 2,274,650
+Percentil 99: 8,349,477
+Percentil 99.9: 41,419,593
+============================================================
+GENERANDO CSV PARA P95
+============================================================
+Umbral P95: 2,274,650
+Filtrando días con volumen >= 2,274,650...
+Generando: quotes_P95_2019_2025_P95.csv (276,326 días)
+Archivo: quotes_P95_2019_2025_P95.csv
+Total días: 276,326
+
+# 2019-2025 INICIANDO DESCARGA QUOTES para  percentil 95 
+PS D:\TSIS_SmallCaps> python scripts\02_final\download_quotes_ultra_fast.py `
+>>   --csv 01_daily\02_quotes\files_csv\quotes_P95_2019_2025_P95.csv `
+>>   --output "C:\TSIS_Data\quotes_p95_2019_2025" `
+>>   --concurrent 100 `
+>>   --resume
+Cargando tareas desde 01_daily\02_quotes\files_csv\quotes_P95_2019_2025_P95.csv...
+============================================================
+DESCARGA ULTRA-RÁPIDA DE QUOTES
+============================================================
+Total tareas: 276,326
+Por procesar: 276,326
+Concurrencia: 100
+Output: C:\TSIS_Data\quotes_p95_2019_2025
+============================================================
+[2025-11-25 20:17:03] Progress: 500/276326 (0.2%) | Rate: 2.2/s | ETA: 1.5d | Success: 500 | Errors: 0 | Skip: 0 | Quotes: 18.9M
+[2025-11-26 09:11:49] Progress: 69000/276326 (25.0%) | Rate: 1.5/s | ETA: 1.6d | Success: 67308 | Errors: 1692 | Skip: 0 | Quotes: 3053.2M
+...
+[2025-11-28 06:02:47] Progress: 276326/276326 (100.0%) | Rate: 3.7/s | ETA: 0.0m | Success: 275431 | Errors: 895 | Skip: 3423 | Quotes: 2797.1M
+
+============================================================
+DESCARGA COMPLETADA
+============================================================
+Tiempo total: 1243.3 minutos (20.72 horas)
+Total procesados: 276,326
+Exitosos: 275,431
+Errores: 895
+Saltados (cache): 3,423
+Días vacíos: 156
+Total quotes: 2,797,122,950
+Total páginas: 94,530
+Velocidad promedio: 3.7 tareas/segundo
+Quotes/segundo: 37496
+
+# 2019-2025 VERIFICANDO
+# SE HA ITERADO DOS VECES HASTA 100% Completados
+python scripts\02_final\retry_failed_quotes.py 
+  --original-csv "01_daily\02_quotes\files_csv\quotes_P95_2019_2025_P95.csv" --output-dir "C:\TSIS_Data\quotes_p95_2019_2025" 
+  --retry-csv quotes_retry_2019_2025.csv
+======================================================================
+IDENTIFICANDO DESCARGAS FALLIDAS
+======================================================================
+Cargando CSV original: 01_daily\02_quotes\files_csv\quotes_P95_2019_2025_P95.csv
+  Total tareas en CSV: 276,326
+
+  Completados: 276,122 (99.9%)
+  Faltantes: 204 (0.1%)
+
+📝 CSV de retry guardado: quotes_retry_2019_2025_v2.csv
+   Total tareas a reintentar: 204
+======================================================================
+COMANDO PARA REINTENTAR DESCARGAS FALLIDAS:
+======================================================================
+python scripts\02_final\download_quotes_ultra_fast.py \
+  --csv quotes_retry_2019_2025.csv \
+  --output "C:\TSIS_Data\quotes_p95_2019_2025" \
+  --concurrent 50 \
+  --resume
 ```
-Para 2004-2018:
+
+**Para 2004-2018:**
 
 ```sh
-# Estadisticas 2004-2018 para  percentil 95 y --generate-csv
+# 2004-2018 Estadisticas 
+# GENERANDO CSV P95
 cd D:\TSIS_SmallCaps
 python "scripts\02_final\quotes_phased_strategy.py" `
   --daily-root "raw/polygon/ohlcv_daily" `
@@ -200,7 +281,87 @@ python "scripts\02_final\quotes_phased_strategy.py" `
   --year-min 2004 `
   --year-max 2018 `
   --generate-csv P95
+
+Analizando 3477 tickers...
+============================================================
+DISTRIBUCIÓN GLOBAL DE VOLUMEN
+============================================================
+Total días analizados: 6,414,035
+Percentil 50 (mediana): 89,300
+Percentil 75: 370,000
+Percentil 90: 1,142,700
+Percentil 95: 2,185,813
+Percentil 99: 6,525,473
+Percentil 99.9: 22,593,600
+============================================================
+GENERANDO CSV PARA P95
+============================================================
+Umbral P95: 2,185,813
+Filtrando días con volumen >= 2,185,813...
+Generado: quotes_P95_2004_2018_P95.csv (320,702 días)
+Archivo: quotes_P95_2004_2018_P95.csv
+Total días: 320,702
+
+
+# 2004-2018 INICIANDO DESCARGA QUOTES para percentil 95 
+PS D:\TSIS_SmallCaps> python scripts\02_final\download_quotes_ultra_fast.py `
+>>   --csv 01_daily\02_quotes\files_csv\quotes_P95_2004_2018_P95.csv `
+>>   --output "C:\TSIS_Data\quotes_p95_2004_2018" `
+>>   --concurrent 30 `
+>>   --resume
+Cargando tareas desde 01_daily\02_quotes\files_csv\quotes_P95_2004_2018_P95.csv...
+============================================================
+DESCARGA ULTRA-RÁPIDA DE QUOTES
+============================================================
+Total tareas: 320,702
+Por procesar: 320,702
+Concurrencia: 30
+Output: C:\TSIS_Data\quotes_p95_2004_2018
+============================================================
+[2025-11-27 13:51:36] Progress: 500/320702 (0.2%) | Rate: 4.6/s | ETA: 19.5h | Success: 500 | Errors: 0 | Skip: 0 | Quotes: 19.3M
+...
+...
+[2025-11-28 22:34:14] Progress: 320702/320702 (100.0%) | Rate: 2.7/s | ETA: 0.0m | Success: 319869 | Errors: 833 | Skip: 0 | Quotes: 13280.7M
+
+============================================================
+DESCARGA COMPLETADA
+============================================================
+Tiempo total: 1964.5 minutos (32.74 horas)
+Total procesados: 320,702
+Exitosos: 319,869
+Errores: 833
+Saltados (cache): 0
+Días vacíos: 15
+Total quotes: 13,280,693,630
+Total páginas: 450,068
+Velocidad promedio: 2.7 tareas/segundo
+Quotes/segundo: 112675
+
+# 2004-2018 VERIFICANDO DESCARGA
+# SE HA ITERADO DOS VECES HASTA 100% Completados
+python scripts\02_final\retry_failed_quotes.py 
+  --original-csv "01_daily\02_quotes\files_csv\quotes_P95_2004_2018_P95.csv" --output-dir "C:\TSIS_Data\quotes_p95_2004_2018" 
+  --retry-csv quotes_retry_2004_2018.csv
+======================================================================
+IDENTIFICANDO DESCARGAS FALLIDAS
+======================================================================
+Cargando CSV original: 01_daily\02_quotes\files_csv\quotes_P95_2004_2018_P95.csv
+  Total tareas en CSV: 320,702
+
+  Completados: 320,627 (100.0%)
+  Faltantes: 75 (0.0%)
+
+📝 CSV de retry guardado: quotes_retry_2004_2018_v2.csv
+   Total tareas a reintentar: 75
+======================================================================
+COMANDO PARA REINTENTAR DESCARGAS FALLIDAS:
+======================================================================
+python scripts\02_final\download_quotes_ultra_fast.py 
+  --csv quotes_retry_2004_2018.csv 
+  --output "C:\TSIS_Data\quotes_p95_2004_2018" 
+  --concurrent 50
 ```
+
 
 Para 2019-2025
 

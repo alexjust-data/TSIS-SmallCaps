@@ -360,8 +360,11 @@ def main():
     # Estadísticas de calidad
     if 'completeness_pct' in results_df.columns:
         avg_completeness = results_df.filter(pl.col('completeness_pct') > 0)['completeness_pct'].mean()
-        log(f"\nCalidad promedio: {avg_completeness:.1f}%")
-        
+        if avg_completeness is not None:
+            log(f"\nCalidad promedio: {avg_completeness:.1f}%")
+        else:
+            log(f"\nCalidad promedio: N/A (sin datos de completitud)")
+
         high_quality = len(results_df.filter(pl.col('completeness_pct') >= args.quality_threshold))
         log(f"Alta calidad (>={args.quality_threshold}%): {high_quality:,} tickers")
 
@@ -404,8 +407,14 @@ def main():
         f.write(f"Total tickers: {total:,}\n")
         f.write(f"Completos: {complete:,} ({complete/total*100:.1f}%)\n")
         f.write(f"Con problemas: {total - complete:,} ({(total-complete)/total*100:.1f}%)\n")
-        f.write(f"Tamaño total: {results_df['size_mb'].sum():.1f} MB\n")
-        if 'completeness_pct' in results_df.columns:
+
+        # Handle missing size_mb column (e.g., when using cache)
+        if 'size_mb' in results_df.columns:
+            total_size = results_df['size_mb'].sum()
+            if total_size is not None:
+                f.write(f"Tamaño total: {total_size:.1f} MB\n")
+
+        if 'completeness_pct' in results_df.columns and avg_completeness is not None:
             f.write(f"Calidad promedio: {avg_completeness:.1f}%\n")
     log(f"  ✅ {report_file}")
 

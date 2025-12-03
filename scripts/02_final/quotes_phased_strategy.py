@@ -201,11 +201,14 @@ if __name__ == '__main__':
     parser.add_argument('--year-min', type=int, default=2019, help='Start year')
     parser.add_argument('--year-max', type=int, default=2025, help='End year')
     parser.add_argument('--generate-csv', choices=['P75', 'P90', 'P95', 'P99'], help='Generar CSV para percentil específico')
+    parser.add_argument('--output-dir', default='01_daily/01_agregation_OHLCV/files_csv', help='Directorio donde guardar los CSVs generados')
+    parser.add_argument('--download-dir', help='Directorio base para descarga de quotes (opcional, se autodetermina por años si no se especifica)')
 
     args = parser.parse_args()
 
     daily_root = Path(args.daily_root)
     ping_file = Path(args.ping_file)
+    output_dir = Path(args.output_dir)
 
     phases, global_stats, ticker_stats = create_phased_download_strategy(
         daily_root, ping_file, args.year_min, args.year_max
@@ -255,7 +258,12 @@ if __name__ == '__main__':
         print(f"\nUmbral {args.generate_csv}: {threshold:,.0f}")
         print(f"Filtrando días con volumen >= {threshold:,.0f}...")
 
-        output_prefix = f"quotes_{args.generate_csv}_{args.year_min}_{args.year_max}"
+        # Crear directorio de output si no existe
+        output_dir.mkdir(parents=True, exist_ok=True)
+
+        # Generar CSV en el directorio especificado
+        csv_filename = f"quotes_{args.generate_csv}_{args.year_min}_{args.year_max}_{args.generate_csv}.csv"
+        output_prefix = str(output_dir / f"quotes_{args.generate_csv}_{args.year_min}_{args.year_max}")
 
         count = generate_phase_csv(
             daily_root, output_prefix, threshold,
@@ -264,6 +272,17 @@ if __name__ == '__main__':
 
         if count > 0:
             csv_file = f"{output_prefix}_{args.generate_csv}.csv"
+
+            # Determinar el path de descarga
+            if args.download_dir:
+                download_path = args.download_dir
+            else:
+                # Autodeterminar basado en el rango de años
+                if args.year_min >= 2019:
+                    download_path = f"C:\\TSIS_Data\\quotes_2019_2025"
+                else:
+                    download_path = f"C:\\TSIS_Data\\quotes_2004_2018"
+
             print("\n" + "="*60)
             print("CSV GENERADO - LISTO PARA DESCARGA")
             print("="*60)
@@ -272,5 +291,5 @@ if __name__ == '__main__':
             print(f"\nComando para descargar:")
             print(f"python scripts\\02_final\\download_quotes_fase3.py \\")
             print(f"  --csv {csv_file} \\")
-            print(f"  --output \"C:\\TSIS_Data\\quotes_{args.generate_csv.lower()}_{args.year_min}_{args.year_max}\" \\")
+            print(f"  --output \"{download_path}\" \\")
             print(f"  --concurrent 50")
