@@ -2,6 +2,11 @@
 raw/
 processed/
 
+# Large CSV files (>50MB) - prevent git add memory failures
+01_daily/02_quotes/files_csv/quotes_dates_2019_2025.csv
+01_daily/02_quotes/files_csv/quotes_dates_2004_2018.csv
+01_daily/01_agregation_OHLCV/files_csv/quotes_P95_2019_2025_P95.csv
+
 # CSV files in root (generated data)
 /*.csv
 *.txt
